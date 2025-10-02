@@ -90,7 +90,7 @@ Execute stage: compute results.
             // start multiplying
             mult <= 0;
             wb_we <= 1;	
-            mul_res <= 0;
+            wb_res <= 0;
         end
 
         else if (mult) begin

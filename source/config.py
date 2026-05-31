@@ -1,3 +1,15 @@
+from typeguard import typechecked
+
+
+@typechecked
+class SourceObservationPrediction:
+    def __init__(self, id=None, cond=None, avail=None, attr=None):
+        self.id = id
+        self.cond = cond
+        self.avail = avail
+        self.attr = attr
+
+
 ## Config
 class ConfCls:
     # input/output information
@@ -7,6 +19,7 @@ class ConfCls:
     clockInput: str = ""
     initRegister: str = ""
     lookAhead: str = ""
+    usePredictor: str = "True"
     cycleDelayedBound: str = ""
 
     # Backends
@@ -55,6 +68,9 @@ class ConfCls:
     trgObservations = []
     filteredSrcObservations = []
 
+    # predictions
+    srcObservationPredictions = []
+
     #predicates
     predicateRetire = []
     predicatePI = []
@@ -78,7 +94,7 @@ class ConfCls:
     verbose_preprocessing = True
     verbose_verification = True
     verbose_counterexample_checking = True
-    verbose_external_processes = True
+    verbose_external_processes = False
 
     def set(self, name, value):
         options = {
@@ -103,6 +119,19 @@ class ConfCls:
 
         self.__setattr__(name, value)
 
+
+    def parseSrcObservationPredictions(self):
+        parsed_src_obs_pred = []
+        for src_obs_pred in self.srcObservationPredictions:
+            assert False, "I removed this part"
+            id = src_obs_pred["id"]
+            cond = src_obs_pred["cond"]
+            avail = src_obs_pred["avail"]
+            attrs = src_obs_pred["attrs"]
+            assert len(attrs) == 1, "TODO: fix it when there are more (also, there shouldn't be collisions)"
+            attr = attrs[0]["value"]
+            parsed_src_obs_pred.append(SourceObservationPrediction(id, cond, avail, attr))
+        self.srcObservationPredictions = parsed_src_obs_pred
 
 
 CONF = ConfCls()

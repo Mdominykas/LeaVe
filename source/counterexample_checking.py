@@ -142,7 +142,7 @@ def rename(id_):
     return renamed
 
 def renameDotNotation(file, testbed: bool):
-
+    print("file yra:", file)
     code = ""
     with open(file, "r") as f:
         code = f.read()

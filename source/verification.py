@@ -2,7 +2,10 @@ from __future__ import absolute_import
 from __future__ import print_function
 import sys
 import os
+import shutil
+from typeguard import typechecked
 import yaml
+import json
 from optparse import OptionParser
 from lark import Lark, tree, Token, Visitor
 import re
@@ -10,7 +13,7 @@ import math
 from datetime import datetime 
 from typing import List
 
-from config import CONF
+from config import CONF, SourceObservationPrediction
 from util import *
 
 ctr = 0
@@ -95,15 +98,84 @@ parser = Lark(expr_grammar, start='expr', ambiguity='resolve') # ambiguity='expl
 #### Helper functions for product circuit
 ####
 
+# pagal: selfCompositionEquivConstraint
+@typechecked
+def equivPrediction(obs_pred: SourceObservationPrediction, postfix):
+    cond = obs_pred.cond
+    avail = obs_pred.avail
+    attr = obs_pred.attr
 
+    wire_name = "{}_{}".format(obs_pred.id, postfix)
+
+    lft_cond = "{}_{}_left".format(cond, postfix)
+    rgt_cond = "{}_{}_right".format(cond, postfix)
+    eq = CONF.selfCompositionEquality
+    cond_eq = "({} {} {})".format(lft_cond, eq, rgt_cond)
+
+    lft_attr = "{}_{}_left".format(attr, postfix)
+    rgt_attr = "{}_{}_right".format(attr, postfix)
+    attr_eq = "({} {} {})".format(lft_attr, eq, rgt_attr)
+
+    lft_avail = "{}_{}_left".format(avail, postfix)
+    rgt_avail = "{}_{}_right".format(avail, postfix)
+
+    same_obs = "({} && ((! {}) || ({})))".format(cond_eq, lft_cond, attr_eq)
+
+    constraint = "wire {} = (! {}) || (! {}) || ({});".format(wire_name, lft_avail, rgt_avail, same_obs)
+    return constraint
+
+@typechecked
+def selfCompositionObservationPredictionEquivalence(wireId, obsDict, prefix):
+    assert wireId == "src_equiv"
+
+    combined_values = {}
+    AVAIL_PREF = "avail_"
+    for pos_obs_id, obs_val in obsDict.items():
+        if pos_obs_id.startswith(AVAIL_PREF):
+            obs_id = pos_obs_id[len(AVAIL_PREF):]
+            if obs_id not in combined_values:
+                combined_values[obs_id] = SourceObservationPrediction()
+            combined_values[obs_id].id = obs_id
+            combined_values[obs_id].avail = obs_val[0]["var"]
+            assert combined_values[obs_id].avail.endswith("_obs_src_cond")
+
+            # combined_values[obs_id].attr = obs_val[1]["var"]
+            # assert combined_values[obs_id].attr.endswith("_obs_src_arg0")
+        else:
+            obs_id = pos_obs_id
+            if obs_id not in combined_values:
+                combined_values[obs_id] = SourceObservationPrediction()
+            combined_values[obs_id].id = obs_id
+
+            combined_values[obs_id].cond = obs_val[0]["var"]
+            assert combined_values[obs_id].cond.endswith("_obs_src_cond")
+
+            combined_values[obs_id].attr = obs_val[1]["var"]
+            assert combined_values[obs_id].attr.endswith("_obs_src_arg0")
+
+
+    
+    src_obs_predictions: List[SourceObservationPrediction] = [val for val in combined_values.values()]
+
+
+    condition = ""
+    for obs_pred in src_obs_predictions:
+        condition += "\t{}\n".format(equivPrediction(obs_pred, prefix))
+
+    if len(src_obs_predictions) > 0:
+        condition+="\twire {} = ( {} ) ;\n".format(wireId, " && ".join( ["{}_{}".format(src_obs_prediction.id, prefix) for src_obs_prediction in src_obs_predictions ] ))
+    
+    return condition
 
 def selfCompositionObservationEquivalence(wireId, obsDict, prefix):
+    assert wireId != "src_equiv", "not for source"
     condition = ""
     for obsId in obsDict.keys():
         condition += "\t{}\n".format(selfCompositionEquivConstraint(obsId, obsDict[obsId], prefix))
     if len(obsDict.keys()) > 0:
         if wireId == "src_equiv":
-            condition+="\twire {} = ( ! ( Retire_obs_trg_arg0_trg_right && Retire_obs_trg_arg0_trg_left ) ) || ( {} ) ;\n".format(wireId, " && ".join( ["{}_{}".format(obsId, prefix) for obsId in obsDict.keys() ] ))
+            condition+="\twire {} = ( {} ) ;\n".format(wireId, " && ".join( ["{}_{}".format(obsId, prefix) for obsId in obsDict.keys() ] ))
+            # condition+="\twire {} = ( ! ( Retire_obs_trg_arg0_trg_right && Retire_obs_trg_arg0_trg_left ) ) || ( {} ) ;\n".format(wireId, " && ".join( ["{}_{}".format(obsId, prefix) for obsId in obsDict.keys() ] ))
         else:
             condition+="\twire {} = {} ;\n".format(wireId, " && ".join( ["{}_{}".format(obsId, prefix) for obsId in obsDict.keys() ] ))
     # if len(obsDict.keys()) > 0:
@@ -181,6 +253,7 @@ def selfCompositionEquivConstraint(obsId, observations, cstrType):
             cond = obs.get("var")
         else:
             args.append(obs)
+            
     if len(args) == 0:
         constraint = "wire {}_{} = {} {} {} ;".format( obsId, cstrType, "{}_{}_right".format(cond, cstrType), CONF.selfCompositionEquality, 
         "{}_{}_left".format(cond, cstrType) )
@@ -452,7 +525,9 @@ def constructProductCircuit(outFolder, srcObsVar, trgObsVar, state, invVars, clo
         if filtertype == "delayedcheck":
             # 5. contract equivalence
             verificationConditions += "\t// contract-equivalence\n"
-            verificationConditions += selfCompositionObservationEquivalence("src_equiv", srcObsVar, "src")
+            src_obs_predictions = CONF.srcObservationPredictions
+            # verificationConditions += selfCompositionObservationEquivalence("src_equiv", srcObsVar, "src")
+            verificationConditions += selfCompositionObservationPredictionEquivalence("src_equiv", srcObsVar, "src")
             verificationConditions += "\n"
             # 6. target equivalence
             verificationConditions += "\t// verification assertion\n"
@@ -468,6 +543,7 @@ def constructProductCircuit(outFolder, srcObsVar, trgObsVar, state, invVars, clo
             if len(invVars) > 0:
                 verificationConditions += selfCompositionAssume("state_invariant")
             if filtertype == "nondelayed":
+                assert False, "I did not change the further part, so it it shouldn't be used"
                 # 5. contract equivalence
                 verificationConditions += "\t// contract-equivalence\n"
                 verificationConditions += selfCompositionObservationEquivalence("src_equiv", srcObsVar, "src")
@@ -500,7 +576,8 @@ def constructProductCircuit(outFolder, srcObsVar, trgObsVar, state, invVars, clo
         if filtertype == "delayedcheck":
             # 5. contract equivalence
             verificationConditions += "\t// contract-equivalence\n"
-            verificationConditions += selfCompositionObservationEquivalence("src_equiv", srcObsVar, "src")
+            # verificationConditions += selfCompositionObservationEquivalence("src_equiv", srcObsVar, "src")
+            verificationConditions += selfCompositionObservationPredictionEquivalence("src_equiv", srcObsVar, "src")
             verificationConditions += "\n"
             # 6. target equivalence
             verificationConditions += "\t// verification assertion\n"
@@ -512,7 +589,7 @@ def constructProductCircuit(outFolder, srcObsVar, trgObsVar, state, invVars, clo
             verificationConditions += "\n"
 
         else :
-
+            assert False, "this part is not updated with new contract"
             # 5. contract equivalence
             verificationConditions += "\t// contract-equivalence\n"
             verificationConditions += selfCompositionObservationEquivalence("src_equiv", srcObsVar, "src")
@@ -673,7 +750,6 @@ def initAuxVars(auxvars, idx_dict):
             break
 
     return auxVars_dict
-
 
 
 def initObservations(observations, auxVars_dict, idx_dict, prefix):
@@ -994,7 +1070,66 @@ def precomputing(srcObservations, trgObservations, stateInvariant, auxVars, meta
     logtimefile("\n\t\tTime for generating flattened product circuits: "+ str((time4- time3).seconds))
 
 
+def parse_parts(prefix, line):
+    if prefix in line:
+        # remove the prefix
+        start = line.find(prefix)
+        rest = line[start + len(prefix):]
+
+        # Extract the signal name
+        name_end = rest.find('=')
+        name = rest[:name_end].strip()
+        # print("name =", name)
+
+        # Extract the part after '=' and parse the binary constant
+        assign_part = line.split('=')[1].strip().rstrip(';')
+
+        # Split into width and binary value like "24'b0001..."
+        width_part, binary_part = assign_part.split("'b")
+        # print("binary_part = ", binary_part)
+        bit_width = int(width_part)
+        value = int(binary_part, 2)
+        return name, value
+    else:
+        return None
+
+
+exported_cnt = 0
+def export_counter_example(tb_file):
+    global exported_cnt
+
+    counter_example_folder = CONF.outFolder + "/counterexamples/"
+    if exported_cnt == 0:        
+        if os.path.exists(counter_example_folder):
+            shutil.rmtree(counter_example_folder)
+        os.makedirs(counter_example_folder)
+
+    log(f"Exporting counterexample with number {exported_cnt}")
+
+
+    lefts, rights = [], []
+    with open(tb_file, "r") as file:
+        for line in file:
+            prt = parse_parts("left.", line)
+            if prt is not None:
+                lefts.append(prt)
+
+            prt = parse_parts("right.", line)
+            if prt is not None:
+                rights.append(prt)
+
+
+    for (suffix, arr) in [("_left", lefts), ("_right", rights)]:
+        file_name = counter_example_folder + str(exported_cnt) + suffix
+        with open(file_name, "w") as file:
+            data = dict(arr)
+            json.dump(data, file, indent=4)
+
+    exported_cnt += 1
+
+import time 
 def verify(trgObservations, cstrtype, filtertype):
+    print("PRADEDU VERIFICATION")
     state = CONF.state
     module = CONF.module
 
@@ -1087,8 +1222,10 @@ def verify(trgObservations, cstrtype, filtertype):
         logtimefile("\n\t\tTime for BMC: "+ str((time5- time4).seconds))
 
         if "Status: FAILED" in output:
+            tb_file = "{}/{}_tb.v".format(outFolder, targetName)
             log("Verification FAILED")
-            return "FAIL","{}/{}_tb.v".format(outFolder, targetName), trg_obs_dict
+            export_counter_example(tb_file)
+            return "FAIL",tb_file, trg_obs_dict
 
         elif "Status: PASSED" in output:
             log("Verification PASSED")

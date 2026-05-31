@@ -133,6 +133,8 @@ def main():
     if CONF.selfCompositionEquality == "===":
         CONF.selfCompositionInequality = "!=="
 
+    # CONF.parseSrcObservationPredictions()
+
     # run_process(["rm", "logfile"], CONF.verbose_preprocessing)
     # run_process(["rm", "logtimefile"], CONF.verbose_preprocessing)
     

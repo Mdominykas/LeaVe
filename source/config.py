@@ -19,7 +19,7 @@ class ConfCls:
     clockInput: str = ""
     initRegister: str = ""
     lookAhead: str = ""
-    usePredictor: str = "True"
+    usePredictor: bool = False
     cycleDelayedBound: str = ""
 
     # Backends

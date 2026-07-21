@@ -168,14 +168,12 @@ def selfCompositionObservationPredictionEquivalence(wireId, obsDict, prefix):
     return condition
 
 def selfCompositionObservationEquivalence(wireId, obsDict, prefix):
-    assert wireId != "src_equiv", "not for source"
     condition = ""
     for obsId in obsDict.keys():
         condition += "\t{}\n".format(selfCompositionEquivConstraint(obsId, obsDict[obsId], prefix))
     if len(obsDict.keys()) > 0:
         if wireId == "src_equiv":
-            condition+="\twire {} = ( {} ) ;\n".format(wireId, " && ".join( ["{}_{}".format(obsId, prefix) for obsId in obsDict.keys() ] ))
-            # condition+="\twire {} = ( ! ( Retire_obs_trg_arg0_trg_right && Retire_obs_trg_arg0_trg_left ) ) || ( {} ) ;\n".format(wireId, " && ".join( ["{}_{}".format(obsId, prefix) for obsId in obsDict.keys() ] ))
+            condition+="\twire {} = ( ! ( Retire_obs_trg_arg0_trg_right && Retire_obs_trg_arg0_trg_left ) ) || ( {} ) ;\n".format(wireId, " && ".join( ["{}_{}".format(obsId, prefix) for obsId in obsDict.keys() ] ))
         else:
             condition+="\twire {} = {} ;\n".format(wireId, " && ".join( ["{}_{}".format(obsId, prefix) for obsId in obsDict.keys() ] ))
     # if len(obsDict.keys()) > 0:
@@ -382,7 +380,7 @@ def parseInputs(inputList):
     return leftDict, rightDict
 
 
-def constructProductCircuit(outFolder, srcObsVar, trgObsVar, state, invVars, clock, filtertype):
+def constructProductCircuit(outFolder, srcObsVar, trgObsVar, state, invVars, clock, filtertype, usePredictor):
 
     WIRE_DECLARATION_PLACEHOLDER = "//**Wire declarations**//"
     MODULE_DECLARATION_PLACEHOLDER = "//**Self-composed modules**//"
@@ -527,7 +525,10 @@ def constructProductCircuit(outFolder, srcObsVar, trgObsVar, state, invVars, clo
             verificationConditions += "\t// contract-equivalence\n"
             src_obs_predictions = CONF.srcObservationPredictions
             # verificationConditions += selfCompositionObservationEquivalence("src_equiv", srcObsVar, "src")
-            verificationConditions += selfCompositionObservationPredictionEquivalence("src_equiv", srcObsVar, "src")
+            if usePredictor:
+                verificationConditions += selfCompositionObservationPredictionEquivalence("src_equiv", srcObsVar, "src")
+            else:
+                verificationConditions += selfCompositionObservationEquivalence("src_equiv", srcObsVar, "src")
             verificationConditions += "\n"
             # 6. target equivalence
             verificationConditions += "\t// verification assertion\n"
@@ -576,8 +577,10 @@ def constructProductCircuit(outFolder, srcObsVar, trgObsVar, state, invVars, clo
         if filtertype == "delayedcheck":
             # 5. contract equivalence
             verificationConditions += "\t// contract-equivalence\n"
-            # verificationConditions += selfCompositionObservationEquivalence("src_equiv", srcObsVar, "src")
-            verificationConditions += selfCompositionObservationPredictionEquivalence("src_equiv", srcObsVar, "src")
+            if usePredictor:
+                verificationConditions += selfCompositionObservationPredictionEquivalence("src_equiv", srcObsVar, "src")
+            else:
+                verificationConditions += selfCompositionObservationEquivalence("src_equiv", srcObsVar, "src")
             verificationConditions += "\n"
             # 6. target equivalence
             verificationConditions += "\t// verification assertion\n"
@@ -972,7 +975,7 @@ def inlinePipelineInvs(outFolder, metavars, auxvars, invariants, module, prefix)
 #### Main verification routine
 ####
 
-def precomputing(srcObservations, trgObservations, stateInvariant, auxVars, metaVars, filtertype):
+def precomputing(srcObservations, trgObservations, stateInvariant, auxVars, metaVars, filtertype, usePredictor):
     state = CONF.state
     module = CONF.module
     outFolder = CONF.outFolder
@@ -1015,7 +1018,7 @@ def precomputing(srcObservations, trgObservations, stateInvariant, auxVars, meta
 
     ## 6. Create product circuit
     log("Create product circuit")
-    constructProductCircuit(outFolder, srcObsVar, trgObsVar, trgStateVars, srcInvsVars, CONF.clockInput, filtertype)
+    constructProductCircuit(outFolder, srcObsVar, trgObsVar, trgStateVars, srcInvsVars, CONF.clockInput, filtertype, usePredictor)
     run_process(["rm", "{}/{}".format(outFolder, CONF.prodCircuitTemplate)])
     run_process(["mv", "{}/prod_base.v".format(outFolder), "{}/prod_base.temp".format(outFolder)])
     run_process(["mv", "{}/prod_inductive.v".format(outFolder), "{}/prod_inductive.temp".format(outFolder)])

@@ -109,7 +109,7 @@ def expandArrays(folder, toExpand):
             f.write(src)
 
 
-def preprocessing(to_expand, srcObservations, invariant, stateInvariant, auxVars, metaVars, cstrtype):
+def preprocessing(to_expand, srcObservations, invariant, stateInvariant, auxVars, metaVars, cstrtype, usePredictor):
 
     log("START")
     
@@ -125,7 +125,7 @@ def preprocessing(to_expand, srcObservations, invariant, stateInvariant, auxVars
         expandArrays(outFolder, to_expand)
 
     
-    precomputing(srcObservations, invariant, stateInvariant, auxVars, metaVars, cstrtype)
+    precomputing(srcObservations, invariant, stateInvariant, auxVars, metaVars, cstrtype, usePredictor)
     time1 = datetime.now()
     
     # run_process(["cp", "{}/{}_inductive/{}".format(CONF.outFolder,cstrtype,CONF.prodCircuitTemplate.replace(".v", "_renamed.temp")), "{}/{}_inductive/{}".format(CONF.outFolder,cstrtype,CONF.prodCircuitTemplate.replace(".v", "_non-renamed.temp"))])

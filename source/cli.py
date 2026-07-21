@@ -104,8 +104,13 @@ def main():
     optparser.add_option("-D", dest="define", action="append",
                          default=[], help="Macro Definition")
     optparser.add_option("-c", dest="clk", action="append",
-                         default='clk', help="Clock Signal Name")                        
+                         default='clk', help="Clock Signal Name")
+    optparser.add_option("--usePredictor", action="store_true", dest="usePredictor", default=False, help="Enable the predictor")
+
     (options, args) = optparser.parse_args()
+
+    if options.usePredictor:
+        (options, args) = optparser.parse_args()
 
     filelist = args
     if options.showversion: # or options.showhelp:
@@ -132,8 +137,6 @@ def main():
         CONF.selfCompositionInequality = "!="
     if CONF.selfCompositionEquality == "===":
         CONF.selfCompositionInequality = "!=="
-
-    # CONF.parseSrcObservationPredictions()
 
     # run_process(["rm", "logfile"], CONF.verbose_preprocessing)
     # run_process(["rm", "logtimefile"], CONF.verbose_preprocessing)
@@ -219,6 +222,9 @@ def main():
     # meta variables
     metaVars = CONF.metaVars
 
+    assert options.usePredictor == CONF.usePredictor, "Both options for predictors are different. There is an error in one of the options"
+
+    usePredictor = CONF.usePredictor
 
     time1 = datetime.now() 
     logfile("\n2. Start the delayed leakage ordering check...\n")
@@ -226,7 +232,7 @@ def main():
     logtimefile("1. Start the preprocessing...\n")    
     # print(invariant)
     # exit(1)
-    preprocessing(toexpandArray, srcObservations, invariant, stateInvariant, auxVars, metaVars, "delayedcheck")
+    preprocessing(toexpandArray, srcObservations, invariant, stateInvariant, auxVars, metaVars, "delayedcheck", usePredictor)
     time2 = datetime.now() 
     logtimefile("\n\n2. Start the verification...")
     State, invariant = microEquivCheck(srcObservations, invariant, stateInvariant, auxVars, metaVars, toexpandArray, "delayedcheck")

@@ -36,7 +36,6 @@ def runTestbed(testbed):
     
     diffcycle = False
     for cycle in cycles:
-
         if diffcycle:
             break
         else:

@@ -940,7 +940,7 @@ module ibex_core (
 	output wire [31:0] lsu_addr_ctr;
 	assign lsu_addr_ctr = adder_result_ext_o_ctr[32:1];
 	wire [31:0] lsu_addr_old_ctr;
-	assign lsu_addr_old_ctr = alu_adder_result_ex_retire;
+	assign lsu_addr_old_ctr = lsu_addr_ctr;
 		
 
 	//Aligned	

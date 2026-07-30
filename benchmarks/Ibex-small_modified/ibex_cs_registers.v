@@ -1006,11 +1006,11 @@ module ibex_cs_registers (
 	assign unused_mhpmcounter_we_1 = mhpmcounter_we[1];
 	assign unused_mhpmcounterh_we_1 = mhpmcounterh_we[1];
 	assign unused_mhpmcounter_incr_1 = mhpmcounter_incr[1];
-	genvar i;
+	genvar counter_i;
 	generate
-		for (i = 0; i < 29; i = i + 1) begin : gen_cntrs
-			localparam signed [31:0] Cnt = i + 3;
-			if (i < MHPMCounterNum) begin : gen_imp
+		for (counter_i = 0; counter_i < 29; counter_i = counter_i + 1) begin : gen_cntrs
+			localparam signed [31:0] Cnt = counter_i + 3;
+			if (counter_i < MHPMCounterNum) begin : gen_imp
 				wire [63:0] mhpmcounter_raw;
 				wire [63:0] mhpmcounter_next;
 				ibex_counter #(

@@ -67,6 +67,9 @@ def microEquivCheck(srcObservations, invariant, stateInvariant, auxVars, metaVar
                     logfile("\tNothing learned from counterexample! The result is UNKNOWN!")
                     return False, None
                 invariant = refineInvariant(invariant, diffInvList)
+                if not invariantSubset(invariant, CONF.trgObservations):
+                    logfile("Target observations are no longer part of invariant. Breaking early")
+                    return False, None
                 continue
             else:
                 logfile("\tThe inductive step is satisfied!\n")

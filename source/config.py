@@ -95,7 +95,7 @@ class ConfCls:
     verbose_preprocessing = True
     verbose_verification = True
     verbose_counterexample_checking = True
-    verbose_external_processes = False
+    verbose_external_processes = True
 
     def set(self, name, value):
         options = {

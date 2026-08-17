@@ -907,9 +907,9 @@ def linkModule(outFolder, module, obsDict, auxVars, suffix):
 def finalizeModuleChanges(outFolder, module, script, suffix):
     yosysScript = script
     yosysScript += "hierarchy -top {}\n".format(module)
-    if CONF.usePredictor:
-        relative_path = Path(CONF.wireLiftingPath)
-        yosysScript += "lifting_wires {} ".format(str(relative_path.resolve()))
+    # if CONF.usePredictor:
+    #     relative_path = Path(CONF.wireLiftingPath)
+    #     yosysScript += "lifting_wires {} ".format(str(relative_path.resolve()))
 
     yosysScript += "proc -norom\n"
     yosysScript += "flatten\n"
@@ -1189,9 +1189,9 @@ def verify(trgObservations, cstrtype, filtertype):
         yosysScript += "read_verilog -sv {}/{}\n".format(outFolder, CONF.prodCircuitTemplate)
         yosysScript += "read_verilog -sv {}/{}\n".format(outFolder, CONF.moduleFile)
         yosysScript += "hierarchy -top {}\n".format(targetName)
-        if CONF.usePredictor:
-            relative_path = Path(CONF.wireLiftingPath)
-            yosysScript += "lifting_wires {} ".format(str(relative_path.resolve()))
+        # if CONF.usePredictor:
+        #     relative_path = Path(CONF.wireLiftingPath)
+        #     yosysScript += "lifting_wires {} ".format(str(relative_path.resolve()))
 
         yosysScript += "proc -norom\n"
         yosysScript += "flatten\n".format(targetName)

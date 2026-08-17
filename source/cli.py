@@ -228,6 +228,9 @@ def main():
     assert options.usePredictor == CONF.usePredictor, "Both options for predictors are different. There is an error in one of the options"
 
     usePredictor = CONF.usePredictor
+    if usePredictor:
+        assert CONF.wireLiftingPath != ""
+
 
     time1 = datetime.now() 
     logfile("\n2. Start the delayed leakage ordering check...\n")

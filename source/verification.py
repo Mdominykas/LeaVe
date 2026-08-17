@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 from __future__ import print_function
+from pathlib import Path
 import sys
 import os
 import shutil
@@ -868,6 +869,10 @@ def flatten(folder, filename, module):
     yosysScript = ""
     yosysScript += "read_verilog -sv {}/*.v\n".format(folder)
     yosysScript += "hierarchy -top {}\n".format(module)
+    if CONF.usePredictor:
+        relative_path = Path(CONF.wireLiftingPath)
+        yosysScript += "lifting_wires {} ".format(str(relative_path.resolve()))
+
     yosysScript += "proc -norom\n"
     yosysScript += "flatten\n"
     yosysScript += "select {}\n".format(module)
@@ -902,6 +907,10 @@ def linkModule(outFolder, module, obsDict, auxVars, suffix):
 def finalizeModuleChanges(outFolder, module, script, suffix):
     yosysScript = script
     yosysScript += "hierarchy -top {}\n".format(module)
+    if CONF.usePredictor:
+        relative_path = Path(CONF.wireLiftingPath)
+        yosysScript += "lifting_wires {} ".format(str(relative_path.resolve()))
+
     yosysScript += "proc -norom\n"
     yosysScript += "flatten\n"
     yosysScript += "add -input stuttering_signal 1\n"
@@ -1040,6 +1049,9 @@ def precomputing(srcObservations, trgObservations, stateInvariant, auxVars, meta
     yosysScript = ""
     yosysScript += "read_verilog -sv {}/*.v\n".format(outFolder)
     yosysScript += "hierarchy -top {}\n".format(targetName)
+    if CONF.usePredictor:
+        relative_path = Path(CONF.wireLiftingPath)
+        yosysScript += "lifting_wires {} ".format(str(relative_path.resolve()))
     yosysScript += "proc -norom\n"
     yosysScript += "flatten\n".format(targetName)
     yosysScript += "opt\n"
@@ -1059,6 +1071,9 @@ def precomputing(srcObservations, trgObservations, stateInvariant, auxVars, meta
     yosysScript = ""
     yosysScript += "read_verilog -sv {}/*.v\n".format(outFolder)
     yosysScript += "hierarchy -top {}\n".format(targetName)
+    if CONF.usePredictor:
+        relative_path = Path(CONF.wireLiftingPath)
+        yosysScript += "lifting_wires {} ".format(str(relative_path.resolve()))
     yosysScript += "proc -norom\n"
     yosysScript += "flatten\n".format(targetName)
     yosysScript += "opt\n"
@@ -1174,6 +1189,10 @@ def verify(trgObservations, cstrtype, filtertype):
         yosysScript += "read_verilog -sv {}/{}\n".format(outFolder, CONF.prodCircuitTemplate)
         yosysScript += "read_verilog -sv {}/{}\n".format(outFolder, CONF.moduleFile)
         yosysScript += "hierarchy -top {}\n".format(targetName)
+        if CONF.usePredictor:
+            relative_path = Path(CONF.wireLiftingPath)
+            yosysScript += "lifting_wires {} ".format(str(relative_path.resolve()))
+
         yosysScript += "proc -norom\n"
         yosysScript += "flatten\n".format(targetName)
         yosysScript += "opt\n"

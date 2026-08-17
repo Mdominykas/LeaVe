@@ -20,6 +20,7 @@ class ConfCls:
     initRegister: str = ""
     lookAhead: str = ""
     usePredictor: bool = False
+    wireLiftingPath: str = ""
     cycleDelayedBound: str = ""
 
     # Backends

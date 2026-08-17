@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 from __future__ import print_function
+from pathlib import Path
 import sys
 import os
 import time
@@ -37,6 +38,10 @@ def show_regs_mems(cstrtype, outFolder):
     yosysScript = ""
     yosysScript += "read_verilog -sv {}/*.v\n".format(outFolder)
     yosysScript += "hierarchy -top {}\n".format(module)
+    if CONF.usePredictor:
+        relative_path = Path(CONF.wireLiftingPath)
+        yosysScript += "lifting_wires {} ".format(str(relative_path.resolve()))
+
     yosysScript += "proc -norom\n"
     yosysScript += "flatten\n"
     yosysScript += "select {}\n".format(module)

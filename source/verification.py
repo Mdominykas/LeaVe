@@ -1049,9 +1049,9 @@ def precomputing(srcObservations, trgObservations, stateInvariant, auxVars, meta
     yosysScript = ""
     yosysScript += "read_verilog -sv {}/*.v\n".format(outFolder)
     yosysScript += "hierarchy -top {}\n".format(targetName)
-    if CONF.usePredictor:
-        relative_path = Path(CONF.wireLiftingPath)
-        yosysScript += "lifting_wires {} ".format(str(relative_path.resolve()))
+    # if CONF.usePredictor:
+    #     relative_path = Path(CONF.wireLiftingPath)
+    #     yosysScript += "lifting_wires {} ".format(str(relative_path.resolve()))
     yosysScript += "proc -norom\n"
     yosysScript += "flatten\n".format(targetName)
     yosysScript += "opt\n"
@@ -1071,9 +1071,9 @@ def precomputing(srcObservations, trgObservations, stateInvariant, auxVars, meta
     yosysScript = ""
     yosysScript += "read_verilog -sv {}/*.v\n".format(outFolder)
     yosysScript += "hierarchy -top {}\n".format(targetName)
-    if CONF.usePredictor:
-        relative_path = Path(CONF.wireLiftingPath)
-        yosysScript += "lifting_wires {} ".format(str(relative_path.resolve()))
+    # if CONF.usePredictor:
+    #     relative_path = Path(CONF.wireLiftingPath)
+    #     yosysScript += "lifting_wires {} ".format(str(relative_path.resolve()))
     yosysScript += "proc -norom\n"
     yosysScript += "flatten\n".format(targetName)
     yosysScript += "opt\n"

@@ -128,7 +128,6 @@ def preprocessing(to_expand, srcObservations, invariant, stateInvariant, auxVars
     precomputing(srcObservations, invariant, stateInvariant, auxVars, metaVars, cstrtype, usePredictor)
     time1 = datetime.now()
     
-    # run_process(["cp", "{}/{}_inductive/{}".format(CONF.outFolder,cstrtype,CONF.prodCircuitTemplate.replace(".v", "_renamed.temp")), "{}/{}_inductive/{}".format(CONF.outFolder,cstrtype,CONF.prodCircuitTemplate.replace(".v", "_non-renamed.temp"))])
     renameDotNotation("{}/{}_base/{}".format(CONF.outFolder,cstrtype,CONF.prodCircuitTemplate.replace(".v", "_renamed.temp")), testbed=False)
     renameDotNotation("{}/{}_inductive/{}".format(CONF.outFolder,cstrtype,CONF.prodCircuitTemplate.replace(".v", "_renamed.temp")), testbed=False)
 

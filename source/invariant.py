@@ -1,16 +1,12 @@
 from __future__ import absolute_import
 from __future__ import print_function
 from pathlib import Path
-import sys
-import os
 import time
-import re
 from config import CONF
 from util import *
 from counterexample_checking import rename
 
 from config import CONF
-from preprocessing import preprocessing
 
 def escape_id(id):
     if (id.count("[")) and (id.count(".") == 0):

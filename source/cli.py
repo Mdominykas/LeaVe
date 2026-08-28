@@ -69,7 +69,7 @@ def microEquivCheck(srcObservations, invariant, stateInvariant, auxVars, metaVar
                 invariant = refineInvariant(invariant, diffInvList)
                 if not invariantSubset(invariant, CONF.trgObservations):
                     logfile("Target observations are no longer part of invariant. Breaking early")
-                    return False, None
+                    return False, []
                 continue
             else:
                 logfile("\tThe inductive step is satisfied!\n")
@@ -148,72 +148,9 @@ def main():
     run_process(["mkdir", "testOut"], CONF.verbose_preprocessing)
     run_process(["mkdir", CONF.outFolder], CONF.verbose_preprocessing)
     logfile("1. Preparing the environment for verification....\n")
-    '''
-    logfile("\n2. Initializing for the leakage ordering check...\n")
-    
-    # initialize the invariants
-    auxVars, to_expand, invariant = initInvariant("nondelayed")
-    # generating toexpandArray
-    toexpandArray = to_expand + CONF.expandArrays
-    # normal pipeline invariant
-    stateInvariant = CONF.stateInvariant
-    # source observations
-    srcObservations = CONF.filteredSrcObservations
-    # target observations
-    trgObservations = CONF.trgObservations + CONF.predicateRetire + CONF.predicatePI
-    # meta variables
-    metaVars = CONF.metaVars
-    time1 = datetime.now() 
-    logtimefile("\n1. Start the preprocessing...")
-    preprocessing(toexpandArray, srcObservations, invariant, stateInvariant, auxVars, metaVars, "nondelayed")
-    time2 = datetime.now() 
-
-    logtimefile("\n\n2. Start the verification...")
-    State, invariant = microEquivCheck(srcObservations, invariant, stateInvariant, auxVars, metaVars, toexpandArray, "nondelayed")
-    if State:    
-        logfile("\n4. Check the satisfaction based on learned strongest attacker.\n")
-        if invariantSubset(invariant, trgObservations):
-            logfile("\n\tThe CPU is SECURE under the attack w.r.t the contract!!")
-        else:
-            logfile("\n\tThe CPU is VULNERABLE under the attack w.r.t the contract!!")
-    time3 = datetime.now()  
-    logtimefile("\n\n\tTime for preprocessing: "+ str((time2- time1).seconds))
-    logtimefile("\n\tTime for learning the strongest attacker: "+ str((time3- time2).seconds))
-    exit(1)
-    
-    logfile("\n3. Start the leakage ordering check...\n")
-    if microEquivCheck(srcObservations, trgObservations, invariant, stateInvariant, auxVars, metaVars, toexpandArray, "nondelayed"):
-        logfile("\nThe contract checked is satisfied\n")
-        exit(1)
-        logfile("\n4. Initializing for the leakage ordering check for predicates...\n")
-        # initialize the invariants
-        auxVars, to_expand, invariant = initInvariant("one-cycle-delayed")#invariant = CONF.invariant
-        # generating toexpandArray
-        toexpandArray = to_expand + CONF.expandArrays
-        # normal pipeline invariant
-        stateInvariant = CONF.stateInvariant
-        # source observations
-        srcObservations = CONF.filteredSrcObservations
-        # target observations
-        trgObservations = CONF.predicatePI
-        # meta variables
-        metaVars = CONF.metaVars
-        if microEquivCheck(srcObservations, trgObservations, invariant, stateInvariant, auxVars, metaVars, toexpandArray, "one-cycle-delayed"):
-            logfile("\nThe leakage ordering check for predicates is satisfied\n")
-            logfile("\nThe contract checked is satisfied\n")
-            exit(1)
-        else:
-            logfile("\nThe leakage ordering check for predicates is not satisfied\n")
-            logfile("\nThe contract checked is not satisfied\n")
-            exit(1)
-    else: 
-        logfile("\nThe leakage ordering check is not satisfied\n")
-        logfile("\nThe contract checked is not satisfied\n")
-        exit(1)
-    #'''
 
     # large-bound-check
-    auxVars, to_expand, invariant = initInvariant("delayedcheck")#invariant = CONF.invariant
+    auxVars, to_expand, invariant = initInvariant("delayedcheck")
     # generating toexpandArray
     toexpandArray = to_expand + CONF.expandArrays
     # normal pipeline invariant
@@ -236,8 +173,6 @@ def main():
     logfile("\n2. Start the delayed leakage ordering check...\n")
     logfile("\n\t2.1 Start the preprocessing...\n")
     logtimefile("1. Start the preprocessing...\n")    
-    # print(invariant)
-    # exit(1)
     preprocessing(toexpandArray, srcObservations, invariant, stateInvariant, auxVars, metaVars, "delayedcheck", usePredictor)
     time2 = datetime.now() 
     logtimefile("\n\n2. Start the verification...")
@@ -249,6 +184,9 @@ def main():
             logtimefile("\n\n\tVerification passed!!\n\n")
             logfile("\n\tThe CPU is SECURE under the attack w.r.t the contract!!")
         else:
+            logfile("\n\tThe CPU is VULNERABLE under the attack w.r.t the contract!!")
+    else:
+        if invariant is not None:
             logfile("\n\tThe CPU is VULNERABLE under the attack w.r.t the contract!!")
     time3 = datetime.now()  
     logtimefile("\n\n\tTime for preprocessing: "+ str((time2- time1).seconds))

@@ -62,36 +62,6 @@ expr_grammar = r"""
     %import common.WS_INLINE
     %import common.WS
  """
-# expr_grammar = r"""
-#     !expr: wire
-#         | concatexpr
-#         | uexpr
-#         | binexpr
-#         | parenexpr
-#     !parenexpr: "(" expr ")"
-#     !uexpr: uop expr
-#     !binexpr: expr binop expr
-#     !concatexpr: "{" expr ("," expr)+ "}"
-#     !uop: "!" | "~"
-#     !binop: "+" | "-" | "*" | "%"
-#         | "&&" | "||" | "==" | "!=="
-#     !wire: var
-#         | value
-#         | var "[" NUMBER "]"
-#         | var "[" NUMBER ":" NUMBER "]"
-#         | "`" NAME
-#     !var:  ("\\")? NAME ( "." ("\\")? NAME )*
-#     !value: NUMBER
-#         | NUMBER "'b" ("0"|"1")+
-#         | NUMBER "'h" HEXDIGIT+     
-#     %import common.CNAME -> NAME
-#     %import common.NUMBER
-#     %import common.HEXDIGIT
-#     %import common.WS_INLINE
-#     %import common.WS
-#     %ignore WS
-#     %ignore WS_INLINE
-# """
 
 parser = Lark(expr_grammar, start='expr', ambiguity='resolve') # ambiguity='explicit' blows up expansion
 
@@ -139,9 +109,6 @@ def selfCompositionObservationPredictionEquivalence(wireId, obsDict, prefix):
             combined_values[obs_id].id = obs_id
             combined_values[obs_id].avail = obs_val[0]["var"]
             assert combined_values[obs_id].avail.endswith("_obs_src_cond")
-
-            # combined_values[obs_id].attr = obs_val[1]["var"]
-            # assert combined_values[obs_id].attr.endswith("_obs_src_arg0")
         else:
             obs_id = pos_obs_id
             if obs_id not in combined_values:
@@ -153,11 +120,8 @@ def selfCompositionObservationPredictionEquivalence(wireId, obsDict, prefix):
 
             combined_values[obs_id].attr = obs_val[1]["var"]
             assert combined_values[obs_id].attr.endswith("_obs_src_arg0")
-
-
     
     src_obs_predictions: List[SourceObservationPrediction] = [val for val in combined_values.values()]
-
 
     condition = ""
     for obs_pred in src_obs_predictions:
@@ -177,8 +141,6 @@ def selfCompositionObservationEquivalence(wireId, obsDict, prefix):
             condition+="\twire {} = ( ! ( Retire_obs_trg_arg0_trg_right && Retire_obs_trg_arg0_trg_left ) ) || ( {} ) ;\n".format(wireId, " && ".join( ["{}_{}".format(obsId, prefix) for obsId in obsDict.keys() ] ))
         else:
             condition+="\twire {} = {} ;\n".format(wireId, " && ".join( ["{}_{}".format(obsId, prefix) for obsId in obsDict.keys() ] ))
-    # if len(obsDict.keys()) > 0:
-    #     condition+="\twire {} = {} ;\n".format(wireId, " && ".join( ["{}_{}".format(obsId, prefix) for obsId in obsDict.keys() ] ))
         return condition
     else:
         return ""
@@ -433,19 +395,6 @@ def constructProductCircuit(outFolder, srcObsVar, trgObsVar, state, invVars, clo
     else:
         init = CONF.initRegister
 
-    # # 3.  stuttering clock
-    # if STUTTERING_CLOCK_PLACEHOLDER in productCircuit_base:
-    #     stutteringClock = ""
-    #     stutteringClock += "\t// Stuttering clock\n"
-    #     stutteringClock += f"\treg clk_left = 1 ;\n"
-    #     stutteringClock += f"\treg clk_right = 1 ;\n"
-    #     stutteringClock += f"\talways @ (clk) begin\n"
-    #     stutteringClock += f"\t\t clk_left <= ( Retire_obs_trg_arg0_trg_left && ( ! Retire_obs_trg_arg0_trg_right ) ) ? clk_left : clk ;\n"
-    #     stutteringClock += f"\t\t clk_right <= ( Retire_obs_trg_arg0_trg_right && ( ! Retire_obs_trg_arg0_trg_left ) ) ? clk_right : clk ;\n"
-    #     stutteringClock += f"\tend\n"
-    #     productCircuit_base = productCircuit_base.replace(STUTTERING_CLOCK_PLACEHOLDER, stutteringClock)
-    #     productCircuit_inductive = productCircuit_inductive.replace(STUTTERING_CLOCK_PLACEHOLDER, stutteringClock)
-
     # 3.  stuttering signal
     if STUTTERING_SIGNAL_PLACEHOLDER in productCircuit_base:
         stutteringSignal = ""
@@ -544,13 +493,6 @@ def constructProductCircuit(outFolder, srcObsVar, trgObsVar, state, invVars, clo
                 verificationConditions += selfCompositionAssume("init_state_equiv")
             if len(invVars) > 0:
                 verificationConditions += selfCompositionAssume("state_invariant")
-            if filtertype == "nondelayed":
-                assert False, "I did not change the further part, so it it shouldn't be used"
-                # 5. contract equivalence
-                verificationConditions += "\t// contract-equivalence\n"
-                verificationConditions += selfCompositionObservationEquivalence("src_equiv", srcObsVar, "src")
-                verificationConditions += selfCompositionAssume("src_equiv")
-                verificationConditions += "\n"
 
             # 6. target equivalence
             verificationConditions += "\t// verification assertion\n"
@@ -575,6 +517,7 @@ def constructProductCircuit(outFolder, srcObsVar, trgObsVar, state, invVars, clo
 
     if VERIFICATION_CONDITIONS_PLACEHOLDER in productCircuit_inductive:
         verificationConditions = ""
+        assert filtertype == "delayedcheck", "The only check that is implemented"
         if filtertype == "delayedcheck":
             # 5. contract equivalence
             verificationConditions += "\t// contract-equivalence\n"
@@ -592,26 +535,6 @@ def constructProductCircuit(outFolder, srcObsVar, trgObsVar, state, invVars, clo
             verificationConditions += selfCompositionCycleDelayedCheck(clock, CONF.lookAhead, "inductive")
             verificationConditions += "\n"
 
-        else :
-            assert False, "this part is not updated with new contract"
-            # 5. contract equivalence
-            verificationConditions += "\t// contract-equivalence\n"
-            verificationConditions += selfCompositionObservationEquivalence("src_equiv", srcObsVar, "src")
-            verificationConditions += "\n"
-
-            # 6. inductive check on target equivalence
-            verificationConditions += "\t// inductive hypothesis and verification assertion\n"
-            verificationConditions += selfCompositionObservationEquivalence("trg_equiv", trgObsVar, "trg")
-            verificationConditions += "\n"
-
-            verificationConditions += selfCompositionOnInit("init_trg_equiv", init, "trg_equiv")
-            
-            if len(invVars) > 0:
-                verificationConditions += selfCompositionAssume("state_invariant")
-            verificationConditions += selfCompositionAssume("src_equiv")
-            verificationConditions += selfCompositionAssume("init_trg_equiv")
-            verificationConditions += selfCompositionAssert("trg_equiv")
-            verificationConditions += "\n"
         productCircuit_inductive = productCircuit_inductive.replace(VERIFICATION_CONDITIONS_PLACEHOLDER, verificationConditions)
     else:
         print(f"The product circuit template at {CONF.prodCircuitTemplate} does not contain a placeholder {VERIFICATION_CONDITIONS_PLACEHOLDER}")
@@ -873,7 +796,7 @@ def flatten(folder, filename, module):
         relative_path = Path(CONF.wireLiftingPath)
         yosysScript += "lifting_wires {} ".format(str(relative_path.resolve()))
 
-    yosysScript += "proc -norom\n"
+    yosysScript += "tee -q proc -norom\n"
     yosysScript += "flatten\n"
     yosysScript += "select {}\n".format(module)
     # yosysScript += "write_verilog -selected {}/{}.temp\n".format(folder, module)
@@ -884,7 +807,7 @@ def linkModule(outFolder, module, obsDict, auxVars, suffix):
     yosysScript = ""
     yosysScript += "read_verilog -sv {}/{}_{}.v\n".format(outFolder, module, suffix)
     yosysScript += "select {}\n".format(module)
-    yosysScript += "proc -norom\n"
+    yosysScript += "tee -q proc -norom\n"
     yosysScript += "addmodule {} {}_{} {}\n".format(module, module, suffix, suffix)
     
     vars_ = set()
@@ -907,15 +830,12 @@ def linkModule(outFolder, module, obsDict, auxVars, suffix):
 def finalizeModuleChanges(outFolder, module, script, suffix):
     yosysScript = script
     yosysScript += "hierarchy -top {}\n".format(module)
-    # if CONF.usePredictor:
-    #     relative_path = Path(CONF.wireLiftingPath)
-    #     yosysScript += "lifting_wires {} ".format(str(relative_path.resolve()))
 
-    yosysScript += "proc -norom\n"
+    yosysScript += "tee -q proc -norom\n"
     yosysScript += "flatten\n"
     yosysScript += "add -input stuttering_signal 1\n"
     yosysScript += "stuttering {} stuttering_signal\n".format(module)
-    yosysScript += "opt\n"
+    yosysScript += "tee -q opt\n"
     yosysScript += "write_verilog -selected {}/{}.v\n".format(outFolder, module)
 
     with open("{}/{}_yosys.script".format(outFolder,suffix) , 'w') as f:
@@ -1049,12 +969,9 @@ def precomputing(srcObservations, trgObservations, stateInvariant, auxVars, meta
     yosysScript = ""
     yosysScript += "read_verilog -sv {}/*.v\n".format(outFolder)
     yosysScript += "hierarchy -top {}\n".format(targetName)
-    # if CONF.usePredictor:
-    #     relative_path = Path(CONF.wireLiftingPath)
-    #     yosysScript += "lifting_wires {} ".format(str(relative_path.resolve()))
-    yosysScript += "proc -norom\n"
+    yosysScript += "tee -q proc -norom\n"
     yosysScript += "flatten\n".format(targetName)
-    yosysScript += "opt\n"
+    yosysScript += "tee -q opt\n"
     yosysScript += "write_verilog {}/{}_renamed.temp\n".format(outFolder_base, targetName)
     with open("{}/yosys-verification_base.script".format(outFolder) , 'w') as f:
         f.write(yosysScript)
@@ -1071,12 +988,9 @@ def precomputing(srcObservations, trgObservations, stateInvariant, auxVars, meta
     yosysScript = ""
     yosysScript += "read_verilog -sv {}/*.v\n".format(outFolder)
     yosysScript += "hierarchy -top {}\n".format(targetName)
-    # if CONF.usePredictor:
-    #     relative_path = Path(CONF.wireLiftingPath)
-    #     yosysScript += "lifting_wires {} ".format(str(relative_path.resolve()))
-    yosysScript += "proc -norom\n"
+    yosysScript += "tee -q proc -norom\n"
     yosysScript += "flatten\n".format(targetName)
-    yosysScript += "opt\n"
+    yosysScript += "tee -q opt\n"
     yosysScript += "write_verilog {}/{}_renamed.temp\n".format(outFolder_inductive, targetName)
     with open("{}/yosys-verification_inductive.script".format(outFolder) , 'w') as f:
         f.write(yosysScript)
@@ -1180,6 +1094,7 @@ def verify(trgObservations, cstrtype, filtertype):
     verifMode="yosys-smt"
     targetName = CONF.prodCircuitTemplate.replace(".v", "")
     avrPath = CONF.avrPath
+    assert verifMode == "yosys-smt", "The only supported mode"
     if verifMode == "yosys-smt":
         log(f"Verification with {verifMode}")
         log("SMTLib encoding")
@@ -1189,13 +1104,10 @@ def verify(trgObservations, cstrtype, filtertype):
         yosysScript += "read_verilog -sv {}/{}\n".format(outFolder, CONF.prodCircuitTemplate)
         yosysScript += "read_verilog -sv {}/{}\n".format(outFolder, CONF.moduleFile)
         yosysScript += "hierarchy -top {}\n".format(targetName)
-        # if CONF.usePredictor:
-        #     relative_path = Path(CONF.wireLiftingPath)
-        #     yosysScript += "lifting_wires {} ".format(str(relative_path.resolve()))
 
-        yosysScript += "proc -norom\n"
+        yosysScript += "tee -q proc -norom\n"
         yosysScript += "flatten\n".format(targetName)
-        yosysScript += "opt\n"
+        yosysScript += "tee -q -o opt.log opt\n"
         
         for o in CONF.yosysSMTPreprocessing:
             yosysScript += f"{o}\n"
@@ -1210,10 +1122,11 @@ def verify(trgObservations, cstrtype, filtertype):
             f.write(yosysScript)
         
         cmd = [CONF.yosysPath]
+        print("Final verification script is located at: ", "{}/yosys-verification.script".format(outFolder))
         cmd.append("-s{}/yosys-verification.script".format(outFolder))
 
         run_process(cmd, CONF.verbose_verification)
-        run_process(["rm", "{}/prod.v".format(outFolder)])
+        # run_process(["rm", "{}/prod.v".format(outFolder)])
  
         time4 = datetime.now()
         logtimefile("\n\t\tTime for generating prod.smt: "+ str((time4- time3).seconds))
@@ -1255,12 +1168,3 @@ def verify(trgObservations, cstrtype, filtertype):
         else:
             print("Unknown verification result")
             exit(1)
-
-    if verifMode == "avr":
-        ## run AVR 
-        log("Verification with {verifMode}")
-        run_process(["python3", avrPath,  os.path.abspath("{}/{}.v\n".format(outFolder, targetName)) ])
-        
-
-
-

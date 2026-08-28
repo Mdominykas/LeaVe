@@ -42,7 +42,7 @@ def show_regs_mems(cstrtype, outFolder):
         relative_path = Path(CONF.wireLiftingPath)
         yosysScript += "lifting_wires {} ".format(str(relative_path.resolve()))
 
-    yosysScript += "proc -norom\n"
+    yosysScript += "tee -q proc -norom\n"
     yosysScript += "flatten\n"
     yosysScript += "select {}\n".format(module)
     #yosysScript += "opt\n"

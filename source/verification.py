@@ -1091,7 +1091,6 @@ def verify(trgObservations, cstrtype, filtertype):
     log("Verification")
     verifMode="yosys-smt"
     targetName = CONF.prodCircuitTemplate.replace(".v", "")
-    avrPath = CONF.avrPath
     assert verifMode == "yosys-smt", "The only supported mode"
     if verifMode == "yosys-smt":
         log(f"Verification with {verifMode}")

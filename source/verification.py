@@ -473,8 +473,6 @@ def constructProductCircuit(outFolder, srcObsVar, trgObsVar, state, invVars, clo
         if filtertype == "delayedcheck":
             # 5. contract equivalence
             verificationConditions += "\t// contract-equivalence\n"
-            src_obs_predictions = CONF.srcObservationPredictions
-            # verificationConditions += selfCompositionObservationEquivalence("src_equiv", srcObsVar, "src")
             if usePredictor:
                 verificationConditions += selfCompositionObservationPredictionEquivalence("src_equiv", srcObsVar, "src")
             else:
@@ -1134,18 +1132,12 @@ def verify(trgObservations, cstrtype, filtertype):
         # cmd = [CONF.yosysBMCPath, "-s", "z3"]
         log("Bounded model checking")
         cmd = [CONF.yosysBMCPath, "-s", CONF.yosysBMCSolver]
+        assert filtertype == "delayedcheck", "The only filtertype that is implemented"
+        assert cstrtype == "base" or cstrtype == "inductive", "The only check that is implemented"
         if cstrtype == "base":
-            if filtertype == "delayedcheck":
-                cmd += ["-t", str(int(CONF.lookAhead)+1)]
-            else: 
-                cmd += ["-t", str(int(CONF.inductiveyosysBMCBound)-1)]
+            cmd += ["-t", str(int(CONF.lookAhead)+1)]
         elif cstrtype == "inductive":
-            if filtertype == "delayedcheck":
-                cmd += ["-t", str(int(CONF.lookAhead)+2)]
-            else: 
-                cmd += ["-t", CONF.inductiveyosysBMCBound]
-        elif cstrtype == "check":
-            cmd += ["-t", CONF.checkyosysBMCBound]
+            cmd += ["-t", str(int(CONF.lookAhead)+2)]
         
         cmd +=["--dump-vlogtb" , "{}/{}_tb.v".format(outFolder, targetName)] 
         cmd += ["--dump-smtc", "{}/{}_smtc".format(outFolder, targetName)]

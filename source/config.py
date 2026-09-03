@@ -21,17 +21,11 @@ class ConfCls:
     lookAhead: str = ""
     usePredictor: bool = False
     wireLiftingPath: str = ""
-    cycleDelayedBound: str = ""
 
     # Backends
     yosysPath: str = ""
-    avrPath: str = ""
     yosysBMCPath : str = ""
     yosysAdditionalModules = []
-    inductiveyosysBMCBound : str = ""
-    checkyosysBMCBound : str = ""
-    directlycheckyosysBMCBound : str = ""
-    prefixCheck: str = ""
     yosysBMCSolver: str = "yices"
     yosysSMTPreprocessing  = ["async2sync","dffunmap"] 
     ## alternatives can be ["clk2fflogic"] or ["dffunmap"] or ["async2sync", "dffunmap"]
@@ -69,12 +63,8 @@ class ConfCls:
     trgObservations = []
     filteredSrcObservations = []
 
-    # predictions
-    srcObservationPredictions = []
-
     #predicates
     predicateRetire = []
-    predicatePI = []
     
     # visible state
     state = []

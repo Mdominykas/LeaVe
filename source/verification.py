@@ -1,69 +1,20 @@
 from __future__ import absolute_import
 from __future__ import print_function
 from pathlib import Path
-import sys
-import os
-import shutil
 from typeguard import typechecked
 import yaml
 import json
 from optparse import OptionParser
 from lark import Lark, tree, Token, Visitor
-import re
 import math
 from datetime import datetime 
 from typing import List
 
 from config import CONF, SourceObservationPrediction
+from observations import collectVars, initAuxVars, initMetaVars, initObservations, initStateVars
+from yosys_cmd_manager import YosysCommandManager
 from util import *
 
-ctr = 0
-
-def log(msg):
-    global ctr
-    if CONF.verbose_verification:
-        print(f">>> Verification {ctr}) {msg}")
-        ctr += 1
-
-## Parsing expressions
-
-expr_grammar = r"""
-    !expr: wire
-        | concatexpr
-        | uexpr
-        | binexpr
-        | parenexpr
-        | (whitespace)? expr (whitespace)?
-    !parenexpr:   "("  expr  ")"
-    !uexpr: uop expr
-    !binexpr: expr binop expr
-    !concatexpr: "{"  expr ("," expr)+ "}"
-    !uop: "!" | "~"
-    !binop: "+" | "-" | "*" | "%"
-        | "&&" | "||" | "==" | "!==" | "!="
-    !wire: var
-        | escapedvar 
-        | value
-        | var (whitespace)? "[" (whitespace)? NUMBER (whitespace)? "]"
-        | escapedvar whitespace  "[" (whitespace)? NUMBER (whitespace)? "]"
-        | var (whitespace)? "[" (whitespace)? NUMBER (whitespace)? ":" (whitespace)? NUMBER (whitespace)? "]"
-        | escapedvar whitespace  "[" (whitespace)? NUMBER (whitespace)? ":" (whitespace)? NUMBER (whitespace)? "]"
-        | "`" NAME
-    !var: NAME
-    !escapedvar: "\\" (NAME | NUMBER | "\\" | "{" | "}" | "." | "$" | "[" | "]")*
-    !value: NUMBER
-        | NUMBER "'b" ("0"|"1")+
-        | NUMBER "'d" HEXDIGIT+
-        | NUMBER "'h" HEXDIGIT+     
-    !whitespace: (WS | WS_INLINE)+
-    %import common.CNAME -> NAME
-    %import common.NUMBER
-    %import common.HEXDIGIT
-    %import common.WS_INLINE
-    %import common.WS
- """
-
-parser = Lark(expr_grammar, start='expr', ambiguity='resolve') # ambiguity='explicit' blows up expansion
 
 ####
 #### Helper functions for product circuit
@@ -543,207 +494,6 @@ def constructProductCircuit(outFolder, srcObsVar, trgObsVar, state, invVars, clo
     with open("{}/{}".format(outFolder, CONF.prodCircuitTemplate.replace(".v", "_inductive.v")) , 'w') as f:
         f.write(productCircuit_inductive)
 
-#### 
-#### Helper functions for metavariables
-#### 
-
-def initMetaVars(metavars):
-    idx_dict = {}
-    for idx in metavars:
-        idx_id = idx.get("id")
-        if idx_id is not None:
-            if idx_id not in idx_dict.keys():
-                if idx.get("range") is None:
-                    print(f"Missing range for index meta-variables {idx_id}")
-                    exit(1)
-                idx_dict[idx_id] = idx.get("range")
-            else:
-                print(f"Duplicated index meta-variable {idx_id}")
-                exit(1)
-        else:
-            print(f"Missing identifier in index meta-variable {idx}")
-            exit(1)
-    return idx_dict
-
-def expandMetaVariable(var: str, rng: int, dict_):
-    newDict = {}
-    for in_ in dict_.keys():
-        in_idxs = getIndexMetaVariables(in_)
-        if var in in_idxs:
-            for i in range(rng):
-                in_new = replaceIndexMetaVariable(in_, var, str(i))
-                if in_new in dict_.keys():
-                    print(f"Duplicated identifier {in_new} resulting from expansion process")
-                    exit(1)
-                if isinstance(dict_[in_], list):
-                    l = []
-                    for o in dict_[in_]:
-                        val_new = {}
-                        for k in o.keys():
-                            if type(o[k]) is str:
-                                val_new[k] = replaceIndexMetaVariable(o[k], var, str(i))
-                            else:
-                                val_new[k] = o[k]
-                        l.append(val_new)
-                    newDict[in_new] = l
-                elif isinstance(dict_[in_], dict):
-                    val_new = {}
-                    for k in dict_[in_].keys():
-                        if type(dict_[in_][k]) is str:
-                            val_new[k] = replaceIndexMetaVariable(dict_[in_][k], var, str(i))
-                        else:
-                            val_new[k] = dict_[in_][k]
-                    newDict[in_new] = val_new
-                else:
-                    print(f"The values in dictionary {dict_} can only be other dictionaries or lists of dictionaries")
-                    exit(1)
-        else:
-            newDict[in_] = dict_[in_]
-    return newDict
-
-####
-#### Helper functions for constructing observations and state variables
-####
-
-def collectVars(expr):
-    varsSet = set()
-    # if expr.startswith("\\") and expr.count("["):
-    #     print("xxxxxxxxxx",expr)
-    #     varsSet.add(expr)
-    # else:
-    tree = parser.parse(expr)
-    for varNode in tree.find_data("var"):
-        ## construct varName
-        varName = ""
-        for child in varNode.children:
-            varName += child.value
-        varsSet.add(varName)
-    for varNode in tree.find_data("escapedvar"):
-        ## construct varName
-        varName = ""
-        for child in varNode.children:
-            varName += child.value
-        varsSet.add(varName)
-    return varsSet
-
-def initAuxVars(auxvars, idx_dict):
-    ## auxVar --> {width, value}
-    auxVars_dict = {}
-    for in_ in auxvars:
-        var_id =  in_.get("id")
-        if var_id is not None:
-            if var_id not in auxVars_dict.keys():
-                var_dict = {}
-
-                var_width = in_.get("width")
-                if var_width is None:
-                    var_dict["width"] = 1
-                else:
-                    var_dict["width"] = var_width
-                
-                var_value = in_.get("value")
-                if var_value is None:
-                    var_dict["value"] = var_id
-                else:
-                    var_dict["value"] = var_value
-                
-                auxVars_dict[var_id] = var_dict
-            else:
-                print(f"Duplicated identifier {var_id}")
-                exit(1)
-        else:
-            print(f"Auxiliary variable {in_} without identifier")
-            exit(1)
-
-    ##### 1. Collect meta-variables
-    idxs = idx_dict.keys()
-
-    ##### 2. Expand meta-variables
-    for idx in idxs:
-        auxVars_dict = expandMetaVariable(idx, idx_dict[idx], auxVars_dict)
-
-    ##### 3. Check that values of aux variables are wires/vars
-    for var in auxVars_dict.keys():
-        tree = parser.parse(auxVars_dict[var]["value"])
-        wires = tree.find_data("wire")
-        flag = False
-        for w in wires:
-            if flag:
-                print("The value {} of variable {} is not a wire!".format(auxVars_dict[var]["value"], var))
-                exit(1)
-            flag = True
-            break
-
-    return auxVars_dict
-
-
-def initObservations(observations, auxVars_dict, idx_dict, prefix):
-    ##### 1. Parse observations 
-    obs_dict = {} ## obsId -> [ condObs, argObs ]
-    for obs in observations:
-        obsId = obs.get("id")
-        if obsId in obs_dict.keys():
-            print(f"Duplicated observation id {obsId}")
-            exit(1)
-        condObs = { "var" : "{}_{}_cond".format(obsId, prefix) , "expr" : obs.get("cond") , "width" : 1 }
-        obs_dict[obsId] = [condObs] 
-        idx=0
-        for attr in obs.get("attrs"):
-            if attr.get("width") is None:
-                width = 1 
-            else:
-                width = attr.get("width")
-            if attr.get("init") is None:
-                init = "none"
-            else:
-                init = attr.get("init")
-            argObs = { "var" : "{}_{}_arg{}".format(obs.get("id"), prefix, idx) , "expr" : attr.get("value") , "width" : width, "init": init}
-            obs_dict[obsId].append(argObs)
-            idx=idx+1
-
-    ##### 2. Expand observations (instantiate meta-vars)
-    idxs = idx_dict.keys()
-    for idx in idxs:
-        obs_dict = expandMetaVariable(idx, idx_dict[idx], obs_dict)
-
-    ##### 3. Update auxVars dictionary
-    for obsId in obs_dict.keys():
-        for obs in obs_dict[obsId]:
-            for var in collectVars(obs["expr"]):
-                if var not in auxVars_dict.keys():
-                    var_dict = {"width": 1, "value": var}
-                    auxVars_dict[var] = var_dict
-
-    return obs_dict, auxVars_dict
-
-def initStateVars(variables, auxVars_dict, idx_dict, prefix):
-    ##### 1. Parse state variables 
-    vars_dict = {} ## varId -> [ expr, width, level ]
-    for var in variables:
-        varId = var.get("id")
-        if varId in vars_dict.keys():
-            print(f"Duplicated variable id {varId}")
-            exit(1)
-        if var.get("width") is None:
-            width = 1 
-        else:
-            width = var.get("width")
-        var = { "var": "{}_{}".format(varId, prefix), "expr" : var.get("expr") , "width" : width, "val": var.get("val") }
-        vars_dict[varId] = [var] 
-
-    ##### 2. Expand observations (instantiate meta-vars)
-    idxs = idx_dict.keys()
-    for idx in idxs:
-        vars_dict = expandMetaVariable(idx, idx_dict[idx], vars_dict)
-
-    ##### 3. Update auxVars dictionary
-    for varId in vars_dict.keys():
-        for var_ in vars_dict[varId]:
-            for var in collectVars(var_["expr"]):
-                if var not in auxVars_dict.keys():
-                    var_dict = {"width": 1, "value": var}
-                    auxVars_dict[var] = var_dict
-    return vars_dict, auxVars_dict
 
 
 def createModule(outFolder, module, obsDict, inputsDict, suffix):
@@ -786,86 +536,28 @@ def createModule(outFolder, module, obsDict, inputsDict, suffix):
 #### Helper variabels for yosys comamnds
 ####
 
-def flatten(folder, filename, module):
-    yosysScript = ""
-    yosysScript += "read_verilog -sv {}/*.v\n".format(folder)
-    yosysScript += "hierarchy -top {}\n".format(module)
-    if CONF.usePredictor:
-        relative_path = Path(CONF.wireLiftingPath)
-        yosysScript += "lifting_wires {} ".format(str(relative_path.resolve()))
-
-    yosysScript += "tee -q proc -norom\n"
-    yosysScript += "flatten\n"
-    yosysScript += "select {}\n".format(module)
-    # yosysScript += "write_verilog -selected {}/{}.temp\n".format(folder, module)
-    return yosysScript
-
-
-def linkModule(outFolder, module, obsDict, auxVars, suffix):
-    yosysScript = ""
-    yosysScript += "read_verilog -sv {}/{}_{}.v\n".format(outFolder, module, suffix)
-    yosysScript += "select {}\n".format(module)
-    yosysScript += "tee -q proc -norom\n"
-    yosysScript += "addmodule {} {}_{} {}\n".format(module, module, suffix, suffix)
-    
-    vars_ = set()
-    for obsId in obsDict.keys():
-        for obs in obsDict[obsId]:
-            vars_ = vars_.union( collectVars(obs.get("expr")) )
-    for v in vars_:
-        yosysScript += "connect -port {} {} {}\n".format(suffix, v, auxVars[v]["value"])
-
-    yosysScript += "expose ".format(module,obs.get("var"))
-    for obsId in obsDict.keys():
-        for obs in obsDict[obsId]:
-            yosysScript += " {}/{}".format(module,obs.get("var"))
-    yosysScript += "\n"
-
-    return yosysScript
-
-
-
-def finalizeModuleChanges(outFolder, module, script, suffix):
-    yosysScript = script
-    yosysScript += "hierarchy -top {}\n".format(module)
-
-    yosysScript += "tee -q proc -norom\n"
-    yosysScript += "flatten\n"
-    yosysScript += "add -input stuttering_signal 1\n"
-    yosysScript += "stuttering {} stuttering_signal\n".format(module)
-    yosysScript += "tee -q opt\n"
-    yosysScript += "write_verilog -selected {}/{}.v\n".format(outFolder, module)
-
-    with open("{}/{}_yosys.script".format(outFolder,suffix) , 'w') as f:
-        f.write(yosysScript)
-    cmd = [CONF.yosysPath]
-    for m in CONF.yosysAdditionalModules:
-        cmd.append(f"-m{m}")
-    cmd.append("-s{}/{}_yosys.script".format(outFolder,suffix))
-    print(cmd)
-    run_process(cmd, CONF.verbose_verification)
-
 
 ####
 #### Helper functions for verification
 #### 
 
-def inlineObservations(outFolder, metavars, auxvars, observations, module, prefix):
+@typechecked
+def inlineObservations(yosys_cmd_manager: YosysCommandManager, outFolder, metavars, auxvars, observations, module, prefix):
     ### 1. Get meta-variables for indexes
     idx_dict = initMetaVars(metavars)
     ### 2. Get auxiliary variable dictionary
     auxVars_dict = initAuxVars(auxvars, idx_dict)
     ### 3. Build observation dictionary and update auxVars dictionary
     obs_dict, auxVars_dict = initObservations(observations, auxVars_dict, idx_dict, prefix)
-    yosysScript = ""
     if len(obs_dict) > 0:
         ### 4. Create observation module
         createModule(outFolder, module, obs_dict, auxVars_dict, "{}".format(prefix))
         ### 5. Link observation module, connect inputs, expose outputs
-        yosysScript = linkModule(outFolder, module, obs_dict, auxVars_dict, "{}".format(prefix))
-    return obs_dict, yosysScript
+        yosys_cmd_manager.link_module(outFolder, module, obs_dict, auxVars_dict, "{}".format(prefix))
+    return obs_dict
 
-def inlineStateVars(outFolder, metavars, auxvars, variables, module, prefix):
+@typechecked
+def inlineStateVars(yosys_cmd_manager: YosysCommandManager, outFolder, metavars, auxvars, variables, module, prefix):
     ### 1. Get meta-variables for indexes
     idx_dict = initMetaVars(metavars)
     ### 2. Get auxiliary variable dictionary
@@ -873,15 +565,15 @@ def inlineStateVars(outFolder, metavars, auxvars, variables, module, prefix):
     ### 3. Build observation dictionary and update auxVars dictionary
     vars_dict, auxVars_dict = initStateVars(variables, auxVars_dict, idx_dict, prefix)
     
-    yosysScript = ""
     if len(vars_dict) > 0:
         ### 4. Create observation module 
         createModule(outFolder, module, vars_dict, auxVars_dict, "{}".format(prefix))
         ### 5. Link observation module, connect inputs, expose outputs
-        yosysScript = linkModule(outFolder, module, vars_dict, auxVars_dict, "{}".format(prefix))
-    return vars_dict, yosysScript
+        yosys_cmd_manager.link_module(outFolder, module, vars_dict, auxVars_dict, "{}".format(prefix))
+    return vars_dict
 
-def inlinePipelineInvs(outFolder, metavars, auxvars, invariants, module, prefix):
+@typechecked
+def inlinePipelineInvs(yosys_cmd_manager: YosysCommandManager, outFolder, metavars, auxvars, invariants, module, prefix):
     ### 1. Get meta-variables for indexes
     idx_dict = initMetaVars(metavars)
     ### 2. Get auxiliary variable dictionary
@@ -889,13 +581,12 @@ def inlinePipelineInvs(outFolder, metavars, auxvars, invariants, module, prefix)
     ### 3. Build observation dictionary and update auxVars dictionary
     invs_dict, auxVars_dict = initObservations(invariants, auxVars_dict, idx_dict, prefix)
     
-    yosysScript = ""
     if len(invs_dict) > 0:
         ### 4. Create observation module 
         createModule(outFolder, module, invs_dict, auxVars_dict, "{}".format(prefix))
         ### 5. Link observation module, connect inputs, expose outputs
-        yosysScript = linkModule(outFolder, module, invs_dict, auxVars_dict, "{}".format(prefix))
-    return invs_dict, yosysScript
+        yosys_cmd_manager.link_module(outFolder, module, invs_dict, auxVars_dict, "{}".format(prefix))
+    return invs_dict
 
 
 ####
@@ -909,7 +600,7 @@ def precomputing(srcObservations, trgObservations, stateInvariant, auxVars, meta
 
 
     # construct yosys script
-    yosysScript = ""
+    yosys_cmd_manager = YosysCommandManager()
 
     log("START")
 
@@ -917,31 +608,27 @@ def precomputing(srcObservations, trgObservations, stateInvariant, auxVars, meta
 
     ## 1. flatten source and target code
     log(f"Flattening {CONF.module}")
-    yosysScript += flatten(outFolder, CONF.moduleFile, CONF.module)
+    yosys_cmd_manager.flatten_with_extra_steps(outFolder, CONF.module)
     time2 = datetime.now()
     logtimefile("\n\t\tTime for flatten the source code: "+ str((time2- time1).seconds))
 
     ## 2. inline target observations
     log("Inline target observations")
-    trgObsVar, script = inlineObservations(outFolder, metaVars, auxVars, trgObservations, module, "obs_trg")
-    yosysScript += script
+    trgObsVar = inlineObservations(yosys_cmd_manager, outFolder, metaVars, auxVars, trgObservations, module, "obs_trg")
 
     ## 3. inline source observations
     log("Inline src observations")
-    srcObsVar, script = inlineObservations(outFolder, metaVars, auxVars, srcObservations, module, "obs_src")
-    yosysScript += script
+    srcObsVar = inlineObservations(yosys_cmd_manager, outFolder, metaVars, auxVars, srcObservations, module, "obs_src")
 
     ## 4. inline state variables
     log("Inline state variables")
-    trgStateVars, script = inlineStateVars(outFolder, metaVars, auxVars, state, module, "state_trg")
-    yosysScript += script
+    trgStateVars = inlineStateVars(yosys_cmd_manager, outFolder, metaVars, auxVars, state, module, "state_trg")
 
     ## 5. inline state invariants
     srcInvsVars = []
     if stateInvariant:
         log("Inline state invariants")
-        srcInvsVars, script = inlinePipelineInvs(outFolder, metaVars, auxVars, stateInvariant, module, "invariant_src")
-        yosysScript += script
+        srcInvsVars = inlinePipelineInvs(yosys_cmd_manager, outFolder, metaVars, auxVars, stateInvariant, module, "invariant_src")
 
     ## 6. Create product circuit
     log("Create product circuit")
@@ -953,7 +640,7 @@ def precomputing(srcObservations, trgObservations, stateInvariant, auxVars, meta
     logtimefile("\n\t\tTime for create observation circuits and prod circuit: "+ str((time25- time2).seconds))
     ## 7. Finalize
     log("Finalize target module changes")
-    finalizeModuleChanges(outFolder, module, yosysScript, "trg")
+    yosys_cmd_manager.finalize_module_changes(module, outFolder, "trg")
     time3 = datetime.now()
     logtimefile("\n\t\tTime for inline observations: "+ str((time3- time25).seconds))
 
@@ -964,18 +651,16 @@ def precomputing(srcObservations, trgObservations, stateInvariant, auxVars, meta
     run_process(["cp", "{}/prod_base.temp".format(outFolder), "{}/prod.v".format(outFolder)])
     run_process(["mkdir", "{}".format(outFolder_base)])
     targetName = CONF.prodCircuitTemplate.replace(".v", "")
-    yosysScript = ""
-    yosysScript += "read_verilog -sv {}/*.v\n".format(outFolder)
-    yosysScript += "hierarchy -top {}\n".format(targetName)
-    yosysScript += "tee -q proc -norom\n"
-    yosysScript += "flatten\n".format(targetName)
-    yosysScript += "tee -q opt\n"
-    yosysScript += "write_verilog {}/{}_renamed.temp\n".format(outFolder_base, targetName)
-    with open("{}/yosys-verification_base.script".format(outFolder) , 'w') as f:
-        f.write(yosysScript)
-    cmd = [CONF.yosysPath]
-    cmd.append("-s{}/yosys-verification_base.script".format(outFolder))
-    run_process(cmd, CONF.verbose_verification)
+    yosys_cmd_manager = YosysCommandManager()
+    yosys_cmd_manager.add_read_verilog_whole_folder(outFolder)
+    yosys_cmd_manager.add_hierarchy_with_top(targetName)
+    yosys_cmd_manager.add_proc_no_rom()
+    yosys_cmd_manager.add_flattening()
+    yosys_cmd_manager.add_opt()
+    base_output_file_path = "{}/{}_renamed.temp".format(outFolder_base, targetName)
+    yosys_cmd_manager.export_to_verilog(base_output_file_path)
+    base_script_file_path = "{}/yosys-verification_base.script".format(outFolder)
+    yosys_cmd_manager.run_from_script(base_script_file_path)
     run_process(["rm", "{}/prod.v".format(outFolder)])
             
     log(f"Generate the product circuit for inductive step")
@@ -983,86 +668,24 @@ def precomputing(srcObservations, trgObservations, stateInvariant, auxVars, meta
     run_process(["cp", "{}/prod_inductive.temp".format(outFolder), "{}/prod.v".format(outFolder)])
     run_process(["mkdir", "{}".format(outFolder_inductive)])
     targetName = CONF.prodCircuitTemplate.replace(".v", "")
-    yosysScript = ""
-    yosysScript += "read_verilog -sv {}/*.v\n".format(outFolder)
-    yosysScript += "hierarchy -top {}\n".format(targetName)
-    yosysScript += "tee -q proc -norom\n"
-    yosysScript += "flatten\n".format(targetName)
-    yosysScript += "tee -q opt\n"
-    yosysScript += "write_verilog {}/{}_renamed.temp\n".format(outFolder_inductive, targetName)
-    with open("{}/yosys-verification_inductive.script".format(outFolder) , 'w') as f:
-        f.write(yosysScript)
-    cmd = [CONF.yosysPath]
-    cmd.append("-s{}/yosys-verification_inductive.script".format(outFolder))
-    run_process(cmd, CONF.verbose_verification)
+    
+    yosys_cmd_manager = YosysCommandManager()
+    yosys_cmd_manager.add_read_verilog_whole_folder(outFolder)
+    yosys_cmd_manager.add_hierarchy_with_top(targetName)
+    yosys_cmd_manager.add_proc_no_rom()
+    yosys_cmd_manager.add_flattening()
+    yosys_cmd_manager.add_opt()
+    inductive_output_file_path = "{}/{}_renamed.temp".format(outFolder_inductive, targetName)
+    yosys_cmd_manager.export_to_verilog(inductive_output_file_path)
+    inductive_script_file_path = "{}/yosys-verification_inductive.script".format(outFolder)
+    yosys_cmd_manager.run_from_script(inductive_script_file_path)
+
     run_process(["rm", "{}/prod.v".format(outFolder)])
     time4 = datetime.now()
     logtimefile("\n\t\tTime for generating flattened product circuits: "+ str((time4- time3).seconds))
 
-
-def parse_parts(prefix, line):
-    if prefix in line:
-        # remove the prefix
-        start = line.find(prefix)
-        rest = line[start + len(prefix):]
-
-        # Extract the signal name
-        name_end = rest.find('=')
-        name = rest[:name_end].strip()
-        # print("name =", name)
-
-        # Extract the part after '=' and parse the binary constant
-        assign_part = line.split('=')[1].strip().rstrip(';')
-
-        # Split into width and binary value like "24'b0001..."
-        width_part, binary_part = assign_part.split("'b")
-        # print("binary_part = ", binary_part)
-        bit_width = int(width_part)
-        value = int(binary_part, 2)
-        return name, value
-    else:
-        return None
-
-
-exported_cnt = 0
-def export_counter_example(tb_file):
-    global exported_cnt
-
-    counter_example_folder = CONF.outFolder + "/counterexamples/"
-    if exported_cnt == 0:        
-        if os.path.exists(counter_example_folder):
-            shutil.rmtree(counter_example_folder)
-        os.makedirs(counter_example_folder)
-
-    log(f"Exporting counterexample with number {exported_cnt}")
-
-
-    lefts, rights = [], []
-    with open(tb_file, "r") as file:
-        for line in file:
-            prt = parse_parts("left.", line)
-            if prt is not None:
-                lefts.append(prt)
-
-            prt = parse_parts("right.", line)
-            if prt is not None:
-                rights.append(prt)
-
-
-    for (suffix, arr) in [("_left", lefts), ("_right", rights)]:
-        file_name = counter_example_folder + str(exported_cnt) + suffix
-        with open(file_name, "w") as file:
-            data = dict(arr)
-            json.dump(data, file, indent=4)
-
-    exported_cnt += 1
-
-import time 
 def verify(trgObservations, cstrtype, filtertype):
     print("PRADEDU VERIFICATION")
-    state = CONF.state
-    module = CONF.module
-
     outFolder = CONF.outFolder + "/" + filtertype + "_" + cstrtype
 
     # 1. replace the right trg_equiv in the prod.v
@@ -1097,38 +720,24 @@ def verify(trgObservations, cstrtype, filtertype):
         log("SMTLib encoding")
         ## Create smtlib encoding with yosys
         time3 = datetime.now()
-        yosysScript = ""
-        yosysScript += "read_verilog -sv {}/{}\n".format(outFolder, CONF.prodCircuitTemplate)
-        yosysScript += "read_verilog -sv {}/{}\n".format(outFolder, CONF.moduleFile)
-        yosysScript += "hierarchy -top {}\n".format(targetName)
-
-        yosysScript += "tee -q proc -norom\n"
-        yosysScript += "flatten\n".format(targetName)
-        yosysScript += "tee -q -o opt.log opt\n"
+        yosys_cmd_manager = YosysCommandManager()
+        yosys_cmd_manager.add_read_verilog_single_file("{}/{}".format(outFolder, CONF.prodCircuitTemplate))
+        yosys_cmd_manager.add_read_verilog_single_file("{}/{}".format(outFolder, CONF.moduleFile))
+        yosys_cmd_manager.add_hierarchy_with_top(targetName)
+        yosys_cmd_manager.add_proc_no_rom()
+        yosys_cmd_manager.add_flattening()
+        yosys_cmd_manager.add_opt()
         
-        for o in CONF.yosysSMTPreprocessing:
-            yosysScript += f"{o}\n"
-        # yosysScript += "async2sync\n"
-        # yosysScript += "dffunmap\n"
-        # yosysScript += "clk2fflogic\n"
-        # yosysScript += "scc\n"
-        # yosysScript += "write_verilog {}/test.v\n".format(outFolder)
-        yosysScript += "write_smt2 -wires {}/{}.smt\n".format(outFolder, targetName)
+        for yosys_pass in CONF.yosysSMTPreprocessing:
+            yosys_cmd_manager.add_string_pass(yosys_pass)
+        yosys_cmd_manager.export_to_smt2("{}/{}.smt".format(outFolder, targetName), with_wires=True)
+        script_path = "{}/yosys-verification.script".format(outFolder)
+        yosys_cmd_manager.run_from_script(script_path)
 
-        with open("{}/yosys-verification.script".format(outFolder) , 'w') as f:
-            f.write(yosysScript)
-        
-        cmd = [CONF.yosysPath]
-        print("Final verification script is located at: ", "{}/yosys-verification.script".format(outFolder))
-        cmd.append("-s{}/yosys-verification.script".format(outFolder))
-
-        run_process(cmd, CONF.verbose_verification)
-        # run_process(["rm", "{}/prod.v".format(outFolder)])
+        run_process(["rm", "{}/prod.v".format(outFolder)])
  
         time4 = datetime.now()
         logtimefile("\n\t\tTime for generating prod.smt: "+ str((time4- time3).seconds))
-        ## run yosys smt bounded model checker
-        # cmd = [CONF.yosysBMCPath, "-s", "z3"]
         log("Bounded model checking")
         cmd = [CONF.yosysBMCPath, "-s", CONF.yosysBMCSolver]
         assert filtertype == "delayedcheck", "The only filtertype that is implemented"

@@ -1,7 +1,6 @@
 from typeguard import typechecked
 
 
-@typechecked
 class SourceObservationPrediction:
     def __init__(self, id=None, cond=None, avail=None, attr=None):
         self.id = id

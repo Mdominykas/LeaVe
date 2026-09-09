@@ -7,6 +7,7 @@ import re
 from config import CONF
 from datetime import datetime
 
+from observations import getIndexMetaVariables, replaceIndexMetaVariable
 from util import *
 from counterexample_checking import renameDotNotation
 from verification import precomputing

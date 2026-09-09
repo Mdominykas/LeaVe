@@ -100,10 +100,6 @@ def main():
     optparser = OptionParser()
     optparser.add_option("-v", "--version", action="store_true", dest="showversion",
                          default=False, help="Show the version")
-    # optparser.add_option("-h", "--help", action="store_true", dest="showhelp",
-                        #  default=False, help="Show the help")
-    optparser.add_option("-I", "--include", dest="include", action="append",
-                         default=[], help="Include path")
     optparser.add_option("-D", dest="define", action="append",
                          default=[], help="Macro Definition")
     optparser.add_option("-c", dest="clk", action="append",
@@ -157,8 +153,6 @@ def main():
     stateInvariant = CONF.stateInvariant
     # source observations
     srcObservations = CONF.srcObservations
-    # target observations
-    trgObservations = CONF.trgObservations #+ CONF.predicateRetire
     # meta variables
     metaVars = CONF.metaVars
 

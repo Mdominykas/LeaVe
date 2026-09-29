@@ -1,13 +1,6 @@
 from typeguard import typechecked
 
 
-class SourceObservationPrediction:
-    def __init__(self, id=None, cond=None, avail=None, attr=None):
-        self.id = id
-        self.cond = cond
-        self.avail = avail
-        self.attr = attr
-
 
 ## Config
 class ConfCls:
@@ -74,9 +67,6 @@ class ConfCls:
 
     # auxiliary variables
     auxiliaryVariables = []
-
-    # index metavariables
-    metaVars = []
 
     # preprocessing
     expandArrays = []

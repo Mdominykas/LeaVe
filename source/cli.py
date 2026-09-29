@@ -1,9 +1,12 @@
 from __future__ import absolute_import
 from __future__ import print_function
+from pathlib import Path
 import sys
 import os
+from typeguard import typechecked
 import yaml
 from optparse import OptionParser
+from observations import Observation, ObservationList
 from util import *
 from datetime import datetime 
 
@@ -12,34 +15,33 @@ from config import CONF
 from preprocessing import preprocessing
 from verification import verify
 from counterexample_checking import runCounterexample
-from invariant import initInvariant
+from invariant import doesContainAllObservations, initInvariant
 from invariant import refineInvariant
-from invariant import invariantSubset
-
-## TODO
-# 1. better error handling :-\
+from verification_environment import VerificationEnvironment
 
 
-
-def microEquivCheck(srcObservations, invariant, stateInvariant, auxVars, metaVars, toexpandArray, filtertype):
+@typechecked
+def microEquivCheck(common_env: VerificationEnvironment, base_ver_env: VerificationEnvironment, ind_ver_env: VerificationEnvironment, invariant: ObservationList, target_observations: ObservationList, delayed_check_str: str):
     counter = 1
     basepass = False
-    starttime = datetime.now() 
-    while(invariant):
+    starttime = datetime.now()
+    # TODO: this can be done with one loop. I think I should make some environment (base/inductive) and then simplify everything by a lot
+    while not invariant.is_empty():
         logfile("\nBegin the {}th loop...\n".format(counter))
         logtimefile("\n\n\tTime for the {}th loop...".format(counter))
         counter+=1
-        logfile("\tThe invariant for verification is:\n" + "".join(inv2str(invariant)))
+        # TODO: I would like to have this in log, but I don't want to edit it now
+        # logfile("\tThe invariant for verification is:\n" + "".join(inv2str(invariant)))
         if not basepass: 
             # 1.1 verification_base
             print("Checking the base case")
             logfile("\n3.1. Checking the micro-equivalence relation...\n")
             logfile("\n3.1.1. Checking the base case...\n")
-            verifStatus, cex, inv = verify(invariant, "base", filtertype)
+            verifStatus, cex, inv = verify(common_env, base_ver_env, invariant, "base", delayed_check_str)
             print(verifStatus)
 
             if verifStatus == "FAIL":
-                diffInvList = runCounterexample(cex, inv, "base", filtertype)
+                diffInvList = runCounterexample(common_env, base_ver_env, cex, inv)
                 logfile("  The base step is not satisfied!\n" + "\tthe difference set of invariant is:\n------\n"+ "\n".join(diffInvList)+"\n------\n")
                 print("The base case is not satisfied!")
                 if diffInvList == []:
@@ -57,25 +59,26 @@ def microEquivCheck(srcObservations, invariant, stateInvariant, auxVars, metaVar
             # 1.2 verification_inductive
             print("  Checking the inductive step")
             logfile("\n\t Checking the inductive step...\n")
-            verifStatus, cex, inv = verify(invariant, "inductive", filtertype)
+            verifStatus, cex, inv = verify(common_env, ind_ver_env, invariant, "inductive", delayed_check_str)
             if verifStatus == "FAIL":
                 print("The inductive step is not satisfied!")
-                diffInvList = runCounterexample(cex, inv, "inductive", filtertype)
+                diffInvList = runCounterexample(common_env, ind_ver_env, cex, inv)
                 logfile("\tThe inductive step is not satisfied!\n" + "\tthe difference set of invariant is:\n------\n"+ "\n".join(diffInvList)+"\n------\n")
                 if diffInvList == []:
                     print("Nothing learned from counterexample!")
                     logfile("\tNothing learned from counterexample! The result is UNKNOWN!")
                     return False, None
                 invariant = refineInvariant(invariant, diffInvList)
-                if not invariantSubset(invariant, CONF.trgObservations):
+                if not doesContainAllObservations(invariant, target_observations):
                     logfile("Target observations are no longer part of invariant. Breaking early")
                     return False, []
                 continue
             else:
                 logfile("\tThe inductive step is satisfied!\n")
                 invtime = datetime.now()
-                logfile("\tThe invariant learned is:\n" + "".join(inv2str(invariant)))
-                print("The invariant learned is: \n",invariant)
+                # TODO: I would like to have this in log, but I don't want to edit it now
+                # logfile("\tThe invariant learned is:\n" + "".join(inv2str(invariant)))
+                # print("The invariant learned is: \n",invariant)
                 
                 logfile("\n\n\tTime for base step: "+ str((basetime- starttime).seconds))
                 logfile("\n\tTime for inductive step: "+ str((invtime - basetime).seconds))
@@ -137,25 +140,31 @@ def main():
     if CONF.selfCompositionEquality == "===":
         CONF.selfCompositionInequality = "!=="
 
-    # run_process(["rm", "logfile"], CONF.verbose_preprocessing)
-    # run_process(["rm", "logtimefile"], CONF.verbose_preprocessing)
-    
-    # run_process(["rm", "-rf", CONF.outFolder], CONF.verbose_preprocessing)
-    run_process(["mkdir", "testOut"], CONF.verbose_preprocessing)
     run_process(["mkdir", CONF.outFolder], CONF.verbose_preprocessing)
     logfile("1. Preparing the environment for verification....\n")
 
+    common_env_folder = Path(CONF.outFolder + "/" + "common_env").resolve()
+    print("common_env_folder:", common_env_folder)
+    common_env = VerificationEnvironment(common_env_folder, source=Path(CONF.codeFolder))
+
+    common_env.copy_actual_code()
+    common_env.add_prod_template()
+
+    delayed_check_str = "delayedcheck"
     # large-bound-check
-    auxVars, to_expand, invariant = initInvariant("delayedcheck")
+    auxVars, to_expand, invariant = initInvariant(common_env, delayed_check_str)
     # generating toexpandArray
     toexpandArray = to_expand + CONF.expandArrays
     # normal pipeline invariant
-    stateInvariant = CONF.stateInvariant
-    # source observations
-    srcObservations = CONF.srcObservations
-    # meta variables
-    metaVars = CONF.metaVars
+    stateInvariant = ObservationList()
+    stateInvariant.extend_with_observation([Observation.from_dict(d) for d in CONF.stateInvariant])
+    # observations
 
+    src_observations = ObservationList()
+    src_observations.extend_with_observation([Observation.from_dict(d) for d in CONF.srcObservations])
+    trg_observations = ObservationList()
+    trg_observations.extend_with_observation([Observation.from_dict(d) for d in CONF.trgObservations])
+    
     assert options.usePredictor == CONF.usePredictor, "Both options for predictors are different. There is an error in one of the options"
 
     usePredictor = CONF.usePredictor
@@ -166,14 +175,25 @@ def main():
     time1 = datetime.now() 
     logfile("\n2. Start the delayed leakage ordering check...\n")
     logfile("\n\t2.1 Start the preprocessing...\n")
-    logtimefile("1. Start the preprocessing...\n")    
-    preprocessing(toexpandArray, srcObservations, invariant, stateInvariant, auxVars, metaVars, "delayedcheck", usePredictor)
+    logtimefile("1. Start the preprocessing...\n")   
+    
+
+    base_name = "{}_base".format(delayed_check_str)
+    base_folder = Path(CONF.outFolder + "/" + base_name).resolve()
+    base_ver_env = VerificationEnvironment(base_folder, source=common_env.target_path())
+
+    ind_name = "{}_inductive".format(delayed_check_str)
+    ind_folder = Path(CONF.outFolder + "/" + ind_name).resolve()
+    ind_ver_env = VerificationEnvironment(ind_folder, source=common_env.target_path())
+
+
+    preprocessing(common_env, base_ver_env, ind_ver_env, toexpandArray, src_observations, invariant, stateInvariant, auxVars, delayed_check_str, usePredictor)
     time2 = datetime.now() 
     logtimefile("\n\n2. Start the verification...")
-    State, invariant = microEquivCheck(srcObservations, invariant, stateInvariant, auxVars, metaVars, toexpandArray, "delayedcheck")
+    State, invariant = microEquivCheck(common_env, base_ver_env, ind_ver_env, invariant, trg_observations, delayed_check_str)
     if State:    
         logfile("\n\n3. Check the satisfaction based on learned strongest attacker.\n")
-        if invariantSubset(invariant, CONF.trgObservations):
+        if doesContainAllObservations(invariant, trg_observations):
             logfile("\n\n\tVerification passed!!\n\n")
             logtimefile("\n\n\tVerification passed!!\n\n")
             logfile("\n\tThe CPU is SECURE under the attack w.r.t the contract!!")

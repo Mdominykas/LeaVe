@@ -1,8 +1,13 @@
 import os
+from pathlib import Path
+
+from typeguard import typechecked
 from config import CONF
 import re
 from datetime import datetime 
+from observations import PreparedObservationList
 from util import *
+from verification_environment import VerificationEnvironment
 
 
 ## Variables (TODO MG: Move to config)
@@ -27,8 +32,9 @@ def compileWithIVerilog(file,outFolder):
         print("Errors during counterexample compilation!")
         exit(1)
     return "{}/{}".format(outFolder, CONF.prodCircuitTemplate.replace(".v",""))
-    
-def runTestbed(testbed):
+
+@typechecked
+def runTestbed(testbed) -> list[str]:
     cmd = [CONF.vvpPath, testbed]
     ctx = run_process(cmd, CONF.verbose_counterexample_checking)
     cycles = ctx.split(">>>>>")
@@ -62,51 +68,10 @@ def runTestbed(testbed):
                     
 
 
-def isSpurious(counterexample,outFolder):
-
-    # 0. move exiting context of CONF.outFolder to CONF.outFolder/old
-    if CONF.verbose_counterexample_checking:
-        print(f">>> Counterexample checking 0) Setting up new {outFolder} folder")
-    cmd = ["cp", "-R", f"{outFolder}", f"{outFolder}_tmp"]
-    run_process(cmd, CONF.verbose_counterexample_checking)
-    cmd = ["rm", "-Rf", f"{outFolder}"]
-    run_process(cmd, CONF.verbose_counterexample_checking)
-    cmd = ["cp", "-R", CONF.codeFolder, outFolder]
-    run_process(cmd, CONF.verbose_counterexample_checking)
-    cmd = ["mv", f"{outFolder}_tmp", f"{outFolder}/{outFolder}_tmp"]
-    run_process(cmd, CONF.verbose_counterexample_checking)
-
-    # 1. preprocess counterexample
-        # 1.a write another prod.v using sources instead of targets and without assert/assume
-        # - for this, we can probably move the construction of product circuit to its own module
-        # - add back src/trg modules
-        # - do we need to construct and inline observations again? Yes, because
-        #   these are new observations!
-        # 1.c modify the counterexample testbed to add checks for trace
-        # equivalence + $display for output
-
-    # 2. collect all files 
-    files = [file for file in os.listdir(outFolder) if file.endswith(".v")]
-
-    # 3. compile testbed using iverilog
-    testbed = compileWithIVerilog(files, outFolder)
-
-    # 4. run
-    return runTestbed(testbed)
-
-    ### 
-    # iverilog -o dsn test.v counter.v
-    # vvp dsn
-    # To the code add something like 
-    # always @* begin
-    #    $display("%b",c);
-    # end
-    # to monitor changes to values
-
-
-def displayObservations(counterexample, obsDict, prodType, keyword):
+@typechecked
+def displayObservations(counterexample: str, obs_list: PreparedObservationList, prodType: str, keyword: str):
     debug = True
-    if len(obsDict) > 0:
+    if len(obs_list.observations) > 0:
         code = ""
         with open(counterexample, "r") as f:
             code = f.read()
@@ -116,15 +81,14 @@ def displayObservations(counterexample, obsDict, prodType, keyword):
         else:
             displayObs = f"\talways @* begin\n"
         displayObs += f"\t\t$display(\">>>>> CYCLE %0d -- {keyword}\", {CONF.yosysCtxCycle});\n"
-        for obsId in obsDict.keys():
-            displayObs += f"\t\t $display(\"{CONF.yosysCtxUUT}.{obsId}_{prodType} %b\", {CONF.yosysCtxUUT}.{obsId}_{prodType});\n"
+        for id in obs_list.observation_ids.keys():
+            displayObs += f"\t\t $display(\"{CONF.yosysCtxUUT}.{id}_{prodType} %b\", {CONF.yosysCtxUUT}.{id}_{prodType});\n"
         displayObs += f"\t\t$display(\"{CONF.yosysCtxUUT}.{prodType}_equiv %b\", {CONF.yosysCtxUUT}.{prodType}_equiv);\n"
         if debug:
-            for obsId in obsDict.keys():
-                displayObs += f"\t\t$display(\">>> {obsId}\");\n"
-                for obs in obsDict[obsId]:
-                    var = obs.get("var")
-                    displayObs += f"\t\t$display(\"{var} %b =?= %b\", {CONF.yosysCtxUUT}.{var}_{prodType}_left,  {CONF.yosysCtxUUT}.{var}_{prodType}_right);\n"
+            for obs in obs_list.observations:
+                displayObs += f"\t\t$display(\">>> {obs.id}\");\n"
+                for atom in obs.attrs:
+                    displayObs += f"\t\t$display(\"{atom.var} %b =?= %b\", {CONF.yosysCtxUUT}.{atom.var}_{prodType}_left,  {CONF.yosysCtxUUT}.{atom.var}_{prodType}_right);\n"
         displayObs += "\tend\n"
         displayObs += "endmodule\n"
 
@@ -134,10 +98,7 @@ def displayObservations(counterexample, obsDict, prodType, keyword):
 
 
 def rename(id_):
-    # print("id_: ", id_)
-    renamed = "renamed_"+id_.replace(".","__").replace("[","___").replace("]","").replace("\\","").replace(" ","")#.replace("$","").replace("/","").replace(":","")
-    # if renamed.find("$func$") != -1:
-    #     print("-renamed-: ", renamed)
+    renamed = "renamed_"+id_.replace(".","__").replace("[","___").replace("]","").replace("\\","").replace(" ","")
     return renamed
 
 def renameDotNotation(file, testbed: bool):
@@ -220,29 +181,12 @@ def fixClock(file):
         print("Yosys-smtbmc correctly assigned the clock signal")
         
 
-def runCounterexample(counterexample, trgObservations, cstrtype, filtertype):
+@typechecked
+def runCounterexample(common_env: VerificationEnvironment, specific_env: VerificationEnvironment, counterexample: str, trg_observations: PreparedObservationList) -> list[str]:
     log("START - RUN CTX")
     time1 = datetime.now()
 
-    outFolder = CONF.outFolder + "/" + filtertype + "_" +cstrtype
-    run_process(["cp", "{}/prod_renamed.temp".format(outFolder), "{}/prod.v".format(outFolder)])
- 
-
-    # new_trg_equiv = ""
-    # if len(trgObservations.keys()) > 0:
-    #     new_trg_equiv += "\tassign trg_equiv = {} ;\n".format( " && ".join( ["{}_trg".format(rename(obsId)) for obsId in trgObservations.keys() ] ))
-    # print(new_trg_equiv)
-
-    # prod = ""
-    # with open("{}/{}".format(outFolder,CONF.prodCircuitTemplate), "r") as f:
-    #     lines = f.readlines()   
-    #     for line in lines:
-    #         if "assign trg_equiv" in line:
-    #             prod += new_trg_equiv 
-    #         else: 
-    #             prod += line
-    # with open("{}/{}".format(outFolder,CONF.prodCircuitTemplate), "w+") as f:
-    #     f.write(prod)   
+    specific_env.add_prod_template(specific_env.target_path() / "prod_renamed.temp")
 
     # 1nd hack:
     # yosys-smtbmc sometimes uses the wrong clock signal for the generated testbed
@@ -252,31 +196,22 @@ def runCounterexample(counterexample, trgObservations, cstrtype, filtertype):
 
     # 2st append display statements to the counterexample
     log(f"Append display statements")
-    displayObservations(counterexample, trgObservations, "trg", "ASSERT")
+    displayObservations(counterexample, trg_observations, "trg", "ASSERT")
 
     # 3st hack:
     # iverilog seems to have trouble with using dot notation, which is used by yosys
     # we therefore need to rename stuff in prod.v :-|
-    # run_process(["cp", "{}/{}".format(outFolder,counterexample), "{}/{}_non-renamed".format(outFolder,counterexample)])
     log(f"Rename dot notation in {counterexample}")
-    # exit(1)
-    renameDotNotation(counterexample,testbed=True)
+    renameDotNotation(counterexample, testbed=True)
     
-    time11 = datetime.now()
     # compile and run counterexample
     log(f"Compile counterexample testbed")
-    tb = compileWithIVerilog(counterexample,outFolder)
-    time12 = datetime.now()
+    tb = compileWithIVerilog(counterexample, specific_env.target_str())
     log(f"Run counterexample testbed")
     diffInvList = runTestbed(tb)
-    time13 = datetime.now()
 
     time2 = datetime.now()
-    logtimefile("\n\t\tTime for analyzing counterexample: "+ str((time2- time1).seconds))
-    # logtimefile("\n\t\tTime for renaming prod: "+ str((time11- time1).seconds))
-    # logtimefile("\n\t\tTime for iverilog: "+ str((time12- time11).seconds))
-    # logtimefile("\n\t\tTime for VVP: "+ str((time13- time12).seconds))
-    run_process(["rm", "{}/prod.v".format(outFolder)])
+    logtimefile("\n\t\tTime for analyzing counterexample: "+ str((time2 - time1).seconds))
     log("END - RUN CTX")
     # exit(1)
     return diffInvList

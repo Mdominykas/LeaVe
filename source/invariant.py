@@ -2,11 +2,19 @@ from __future__ import absolute_import
 from __future__ import print_function
 from pathlib import Path
 import time
+from typing import List
+
+from typeguard import typechecked
+from auxilary_variables import AuxVarDict, get_aux_vars_from_config
 from config import CONF
+from observations import Observation, ObservationList, PreparedObservationList
+from rtl_parts import RTLMemory
 from util import *
 from counterexample_checking import rename
 
 from config import CONF
+from verification_environment import VerificationEnvironment
+from yosys_cmd_manager import YosysCommandManager
 
 def escape_id(id):
     if (id.count("[")) and (id.count(".") == 0):
@@ -18,121 +26,46 @@ def id2val(id):
     if id.count(".") == 0:
         return id
     else:
-        id_l = id.split(".")
-        return "\\"+".".join(id_l)
+        return "\\" + id
 
 
-def createInvariantfromregs(id, width):
-    return {"id": id2val(id), "cond": "1", "attrs": [ {"value": id2val(id), "width": width} ]}
-
-def createInvariantfrommems(id, i, width):
-    return {"id": id2val(id) + "_"+str(i), "cond": "1", "attrs": [ {"value": id2val(id)+"_"+str(i), "width": width} ]}
-
-def show_regs_mems(cstrtype, outFolder):
-
-    module = CONF.module
-    yosysScript = ""
-    yosysScript += "read_verilog -sv {}/*.v\n".format(outFolder)
-    yosysScript += "hierarchy -top {}\n".format(module)
-    if CONF.usePredictor:
-        relative_path = Path(CONF.wireLiftingPath)
-        yosysScript += "lifting_wires {} ".format(str(relative_path.resolve()))
-
-    yosysScript += "tee -q proc -norom\n"
-    yosysScript += "flatten\n"
-    yosysScript += "select {}\n".format(module)
-    #yosysScript += "opt\n"
-    yosysScript += "write_verilog  {}/{}.v\n".format(outFolder,module)
-    yosysScript += "show_regs_mems -o {} {}\n".format(outFolder, module)
-    yosysScript += "write_verilog  {}/{}.v\n".format(outFolder,module)
-
-    with open("{}/show_yosys.script".format(outFolder) , 'w') as f:
-        f.write(yosysScript)
+@typechecked
+def initInvariant(common_env: VerificationEnvironment, filtertype) -> tuple[AuxVarDict, List[dict], ObservationList]:
     
-    cmd = [CONF.yosysPath]
-    for m in CONF.yosysAdditionalModules:
-        cmd.append(f"-m{m}")
-    cmd.append("-s{}/show_yosys.script".format(outFolder))
-    run_process(cmd, CONF.verbose_verification)
+    yosys_cmd_manager = YosysCommandManager()
+    memories, variables = yosys_cmd_manager.show_regs_mems_workflow(common_env.target_str(), CONF.module)
 
-def initInvariant(filtertype):
-    outFolder = CONF.outFolder + f"/{filtertype}_init" 
-    ## 0. copy source code to target
-    run_process(["rm", "-rf", outFolder], CONF.verbose_preprocessing)
-    run_process(["cp", "-R", CONF.codeFolder, outFolder], CONF.verbose_preprocessing)
-    
-    ## 1. get the information about the memories and registers from the flattened design
-    show_regs_mems("init", outFolder)
-
-       
-    # 2. phase the regs_mems.dat
-    invariant = []
+    invariant: ObservationList = ObservationList()
     to_expand = []
-    auxiliaryVariables = []
-    f = open("{}/regs_mems.dat".format(outFolder))
-    for line in f:
-        linelist = line.split(" ")
-        # create the invariants for memories 
-        # Memories: name width size filename
-        if linelist[0] == "Memories":
-            id = linelist[1]
-            if id not in CONF.memoryList:
-                if (not id.count("$")) and (not (id.startswith("_") and id.endswith("_"))):
-                    width = int(linelist[2])
-                    size = int(linelist[3])
-                    filename = (linelist[4].replace("\n", "")).split("/")[-1]
-                    to_expand.append({"filename": filename, "array": id.split(".")[-1], "width": width, "size": size, "mult": "true"})
-                    for i in range(size):
-                        auxiliaryVariables.append({"id": id2val(id)+"_"+str(i), "value": id2val(id)+"_"+str(i), "width": width})
-                        invariant.append(createInvariantfrommems(id,i,width))
-        # create the invariants for registers 
-        # Registers: name width
-        elif linelist[0] == "Variables":
-            id = linelist[1]
-            width = int(linelist[2])
-            if (not id.count("$")) and (not (id.startswith("_") and id.endswith("_"))):
-                id = escape_id(id)
-                auxiliaryVariables.append({"id": id2val(id), "value": id2val(id), "width": width})
-                invariant.append(createInvariantfromregs(id,width))
-    f.close()
-    #print(to_expand)
-    #print(invariant)
-    # generating auxiliary Variables
-    av_dict = []
-    auxVars = []
-    for av in (auxiliaryVariables + CONF.auxiliaryVariables):
-        if av.get("id") not in av_dict:
-            auxVars.append(av)
-            av_dict.append(av.get("id"))
-    return auxVars, to_expand, embedInvariant(CONF.predicateRetire,embedInvariant(CONF.trgObservations,embedInvariant(CONF.invariant,invariant)))
 
-def embedInvariant(invariant, toembedinv):
-    newinv = []
-    for inv in toembedinv:
-        newinv.append(inv)
-    for inv in invariant:
-        exist = False
-        for toinv in newinv:
-            if inv.get("id") == toinv.get("id"):
-                exist = True
-        if not exist:
-            newinv.append(inv)
-    return newinv
+    aux_var_dict: AuxVarDict = get_aux_vars_from_config(CONF)
+
+    for mem in memories:
+        to_expand.append(mem.to_to_expand())
+        for i in range(mem.size):
+            aux_var_dict.add_aux_var(mem.to_aux_var(i))
+            invariant.add_observation(mem.to_invariant(i))
+       
+    for var in variables:
+        aux_var_dict.add_aux_var(var.to_aux_var())
+        invariant.add_observation(var.to_invariant())
+
+    new_obs = [Observation.from_dict(d) for d in CONF.predicateRetire + CONF.trgObservations + CONF.invariant]
+    invariant.extend_with_observation(new_obs)
+    return aux_var_dict, to_expand, invariant
 
 
-def refineInvariant(invariant, diffInvList):
-    newinvariant = []
-    for inv in invariant:
-        if (inv.get("id") not in diffInvList) and (rename(inv.get("id")) not in diffInvList):
-            newinvariant.append(inv)
-    return newinvariant
+@typechecked
+def refineInvariant(invariant: ObservationList, diffInvList: list[str]) -> ObservationList:
+    ans = ObservationList()
+    for obs in invariant.observations:
+        if (obs.id not in diffInvList) and (rename(obs.id) not in diffInvList):
+            ans.add_observation(obs)
+    return ans
 
-def invariantSubset(source, target):
-    contain = True
-    sourceIDList = []
-    for inv in source:
-        sourceIDList.append(inv.get("id"))
-    for inv in target:
-        if (inv.get("id") not in sourceIDList):
-            contain = False
-    return contain
+@typechecked
+def doesContainAllObservations(source: ObservationList, target: ObservationList):
+    for obs in target.get_observation_list():
+        if not obs in source.get_observation_list():
+            return False
+    return True

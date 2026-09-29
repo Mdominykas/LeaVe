@@ -1,7 +1,123 @@
+from __future__ import annotations
 import re
+from typing import List
 
-from expr_parser import parser
+from typeguard import typechecked
 
+from auxilary_variables import AuxVar, AuxVarDict
+from expr_parser import collectVars, parser
+
+from copy import copy, deepcopy
+
+Expr = str
+
+class ObservationAtom:
+    @typechecked
+    def __init__(self, value: Expr, width: int, init: bool = False):
+        self.value = value
+        self.width = width
+        # TODO: I think init is only needed for state assumptions. It might be good to refactor it later
+        self.init = init
+
+    def __copy__(self):
+        return ObservationAtom(self.value, self.width, self.init)
+
+    def __deepcopy__(self, memo):
+        return ObservationAtom(
+            deepcopy(self.value, memo),
+            deepcopy(self.width, memo),
+            deepcopy(self.init, memo),
+        )
+
+    @staticmethod
+    @typechecked
+    def from_dict(d: dict) -> ObservationAtom:
+        return ObservationAtom(value=d["value"], width=d["width"], init=d.get("init", False) == "1")
+    
+    def __eq__(self, other):
+        if not isinstance(other, ObservationAtom):
+            return NotImplemented
+        return self.value == other.value and self.width == other.width and self.init == other.init
+
+    def __repr__(self):
+        return f"ObservationAtom(value={self.value!r}, width={self.width}, init={self.init})"
+
+
+
+class Observation:
+    @typechecked
+    def __init__(self, id: str, cond: Expr, attrs: List[ObservationAtom], init: bool = False):
+        self.id = id
+        self.cond = cond
+        self.attrs = deepcopy(attrs)
+        self.init = init
+
+    @staticmethod
+    @typechecked
+    def from_dict(d: dict) -> Observation:
+        attrs = [ObservationAtom.from_dict(at)for at in d["attrs"]]
+        # It's a stupid thing to keep it consistent with legacy configurations
+        init = d["init"] == "1" if "init" in d.keys() else False
+        return Observation(id=d["id"], cond=d["cond"], attrs=attrs, init=init)
+    
+    def __eq__(self, other):
+        if not isinstance(other, Observation):
+            return NotImplemented
+        return self.id == other.id and self.cond == other.cond and self.attrs == other.attrs and self.init == other.init
+
+    def __repr__(self):
+        return f"Observation(id={self.id!r}, cond={self.cond}, attrs={self.attrs!r}, init={self.init})"
+
+
+
+# TODO: I think this can be done in a generic way
+# arba galiu tiesiog laikyti lista ir uztiprinti invarianta
+class ObservationList:
+    observation_ids: dict[str, None]
+    # TODO: I think this might be wrong...
+    observations: list[PreparedObservation]
+
+    def __init__(self):
+        self.observation_ids = {}
+        self.observations = []
+    
+    @typechecked
+    def add_observation(self, observation: Observation, okay_if_identical_exists=True):
+        already_there = False
+        if not okay_if_identical_exists:
+            assert observation.id not in self.observation_ids, "The aux_var id: \"{}\" is duplicated".format(observation.id)
+        elif observation.id in self.observation_ids:
+            for obs in self.observations:
+                assert obs.id != observation.id or obs == observation, "We can only add an identical observation, they are: old={} and new={}".format(obs, observation)
+                if obs.id == observation.id:
+                    already_there = True
+        if not already_there:
+            self.observations.append(observation)
+            self.observation_ids[observation.id] = True
+
+    @typechecked
+    def extend_with_observation(self, observations: List[Observation]):
+        for obs in observations:
+            self.add_observation(obs)
+
+    @typechecked
+    def get_observation_list(self) -> List[Observation]:
+        return self.observations
+
+    @typechecked
+    def is_empty(self) -> bool:
+        return len(self.observations) == 0
+
+
+
+# TODO: use this class for the code that I write (after I used observation somewhere else)
+class ObservationPrediction:
+    @typechecked
+    def __init__(self, id: str, avail: str, applicability: str, observation: PreparedObservationAtom):
+        self.id = id
+        self.avail = avail
+        self.applicability = applicability
+        self.observation = observation
 
 def getIndexMetaVariables(expr:str):
     return set(re.findall('\$\$(.*?)\$\$', expr))
@@ -10,168 +126,244 @@ def replaceIndexMetaVariable(expr:str, metavar:str, value:str):
     return re.sub(f'\$\${metavar}\$\$', value, expr)
 
 
-def collectVars(expr):
-    varsSet = set()
-    # if expr.startswith("\\") and expr.count("["):
-    #     print("xxxxxxxxxx",expr)
-    #     varsSet.add(expr)
-    # else:
-    tree = parser.parse(expr)
-    for varNode in tree.find_data("var"):
-        ## construct varName
-        varName = ""
-        for child in varNode.children:
-            varName += child.value
-        varsSet.add(varName)
-    for varNode in tree.find_data("escapedvar"):
-        ## construct varName
-        varName = ""
-        for child in varNode.children:
-            varName += child.value
-        varsSet.add(varName)
-    return varsSet
+# TODO: I think I can skip whole previous step and just go directly here
+class PreparedObservationAtom:
+    @typechecked
+    def __init__(self, var: str, expr: Expr, width: int, init: bool = False):
+        self.var = var
+        self.expr = expr
+        self.width = width
+        self.init = init
+    
+    def __copy__(self):
+        return PreparedObservationAtom(self.var, self.expr, self.width, self.init)
 
-def initAuxVars(auxvars, idx_dict):
-    ## auxVar --> {width, value}
-    auxVars_dict = {}
-    for in_ in auxvars:
-        var_id =  in_.get("id")
-        if var_id is not None:
-            if var_id not in auxVars_dict.keys():
-                var_dict = {}
+    def __deepcopy__(self, memo):
+        return PreparedObservationAtom(
+            deepcopy(self.var, memo),
+            deepcopy(self.expr, memo),
+            deepcopy(self.width, memo),
+            deepcopy(self.init, memo),
+        )
+    
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, PreparedObservationAtom):
+            return NotImplemented
+        return (self.var, self.expr, self.width, self.init) == (
+            other.var, other.expr, other.width, other.init
+        )
+    
+    def __repr__(self):
+        return f"PreparedObservationAtom(var={self.var!r}, expr={self.expr}, width={self.width!r}, init={self.init})"
 
-                var_width = in_.get("width")
-                if var_width is None:
-                    var_dict["width"] = 1
-                else:
-                    var_dict["width"] = var_width
-                
-                var_value = in_.get("value")
-                if var_value is None:
-                    var_dict["value"] = var_id
-                else:
-                    var_dict["value"] = var_value
-                
-                auxVars_dict[var_id] = var_dict
+
+
+class PreparedObservation:
+    @typechecked
+    def __init__(self, id: str, cond: PreparedObservationAtom, attrs: List[PreparedObservationAtom], init: bool = False):
+        self.id = id
+        self.cond = cond
+        self.attrs = deepcopy(attrs)
+        self.init = init
+
+    def get_all_atoms(self) -> List[PreparedObservationAtom]:
+        return [self.cond] + self.attrs
+
+    @typechecked
+    def collect_vars_from_expressions(self) -> set[str]:
+        ans = set()
+        for a in self.get_all_atoms():
+            ans = ans.union(collectVars(a.expr))
+        return ans
+    
+    def __eq__(self, other):
+        if not isinstance(other, PreparedObservation):
+            return NotImplemented
+        return self.id == other.id and self.cond == other.cond and self.attrs == other.attrs and self.init == other.init
+
+    def __repr__(self):
+        return f"Observation(id={self.id!r}, cond={self.cond}, attrs={self.attrs!r}, init={self.init})"
+
+
+class PreparedObservationList:
+    observation_ids: dict[str, None]
+    observations: list[PreparedObservation]
+    
+    def __init__(self):
+        self.observation_ids = {}
+        self.observations = []
+    
+    @typechecked
+    def add_observation(self, observation: PreparedObservation, okay_if_identical_exists=True):
+        already_there = False
+        if not okay_if_identical_exists:
+            assert observation.id not in self.observation_ids, "The aux_var id: \"{}\" is duplicated".format(observation.id)
+        elif observation.id in self.observation_ids:
+            for obs in self.observations:
+                assert obs.id != observation.id or obs == observation, "We can only add an identical observation, they are: old={} and new={}".format(obs, observation)
+                if obs.id == observation.id:
+                    already_there = True
+        
+        if not already_there:
+            self.observations.append(observation)
+            self.observation_ids[observation.id] = True
+
+    @typechecked
+    def extend_with_observation(self, observations: List[PreparedObservation]):
+        for obs in observations:
+            self.add_observation(obs)
+
+    @typechecked
+    def get_observation_list(self) -> List[PreparedObservation]:
+        return self.observations[:]
+
+    @typechecked
+    def is_empty(self) -> bool:
+        return len(self.observations) == 0
+
+    def get_all_blocks(self):
+        ans = []
+        for obs in self.observations:
+            for at in obs.attrs:
+                ans.append(at)
+            ans.append(obs.cond)
+        return ans
+    
+    @typechecked
+    def collect_vars_from_expressions(self) -> set[str]:
+        ans = set()
+        for prep_obs in self.get_observation_list():
+            for obs_atom in prep_obs.get_all_atoms():
+                ans = ans.union(collectVars(obs_atom.expr))
+        return ans
+        
+    # TODO: this should be done from configuration file, cause this is just a terrible workaround
+    def parse_predictions(self) -> List[ObservationPrediction]:
+        AVAIL_PREF = "avail_"
+
+        # [id -> [obs, avail]]
+        obs_pairs = {}
+        for id in self.observation_ids.keys():
+            if not id.startswith(AVAIL_PREF):
+                obs_pairs[id] = [None, None]
+
+        for obs in self.observations:
+            if obs.id.startswith(AVAIL_PREF):
+                true_id = obs.id[len(AVAIL_PREF):]
+                obs_pairs[true_id] = [obs_pairs[true_id][0], obs]
             else:
-                print(f"Duplicated identifier {var_id}")
-                exit(1)
-        else:
-            print(f"Auxiliary variable {in_} without identifier")
-            exit(1)
+                obs_pairs[obs.id] = [obs, obs_pairs[obs.id][1]]
 
-    ##### 1. Collect meta-variables
-    idxs = idx_dict.keys()
+        src_obs_predictions = []
 
-    ##### 2. Expand meta-variables
-    for idx in idxs:
-        auxVars_dict = expandMetaVariable(idx, idx_dict[idx], auxVars_dict)
+        for id, (obs, avail) in obs_pairs.items():
+            assert isinstance(obs, PreparedObservation)
+            assert isinstance(avail, PreparedObservation)
+            assert len(obs.attrs) == 1
+            assert len(avail.attrs) == 1
+            assert obs.attrs[0].expr == avail.attrs[0].expr and obs.attrs[0].width == avail.attrs[0].width, "Attributes were supposed to be equal, but they are: obs.attr={}, avail.attr={}".format(obs.attrs[0], avail.attrs[0])
+            assert obs.cond.var.endswith("_obs_src_cond")
+            assert avail.cond.var.endswith("_obs_src_cond")
+            assert obs.attrs[0].var.endswith("_obs_src_arg0")
 
-    ##### 3. Check that values of aux variables are wires/vars
-    for var in auxVars_dict.keys():
-        tree = parser.parse(auxVars_dict[var]["value"])
-        wires = tree.find_data("wire")
-        flag = False
-        for w in wires:
-            if flag:
-                print("The value {} of variable {} is not a wire!".format(auxVars_dict[var]["value"], var))
-                exit(1)
-            flag = True
-            break
-
-    return auxVars_dict
+            src_obs_predictions.append(ObservationPrediction(id=id, applicability=obs.cond.var, avail=avail.cond.var, observation=obs.attrs[0]))
+        
+        return src_obs_predictions
+        
 
 
-def initObservations(observations, auxVars_dict, idx_dict, prefix):
-    ##### 1. Parse observations 
-    obs_dict = {} ## obsId -> [ condObs, argObs ]
-    for obs in observations:
-        obsId = obs.get("id")
-        if obsId in obs_dict.keys():
-            print(f"Duplicated observation id {obsId}")
-            exit(1)
-        condObs = { "var" : "{}_{}_cond".format(obsId, prefix) , "expr" : obs.get("cond") , "width" : 1 }
-        obs_dict[obsId] = [condObs] 
-        idx=0
-        for attr in obs.get("attrs"):
-            if attr.get("width") is None:
-                width = 1 
-            else:
-                width = attr.get("width")
-            if attr.get("init") is None:
-                init = "none"
-            else:
-                init = attr.get("init")
-            argObs = { "var" : "{}_{}_arg{}".format(obs.get("id"), prefix, idx) , "expr" : attr.get("value") , "width" : width, "init": init}
-            obs_dict[obsId].append(argObs)
-            idx=idx+1
 
-    ##### 2. Expand observations (instantiate meta-vars)
-    idxs = idx_dict.keys()
-    for idx in idxs:
-        obs_dict = expandMetaVariable(idx, idx_dict[idx], obs_dict)
-
+@typechecked
+def initObservations(observations: ObservationList, aux_var_dict: AuxVarDict, prefix: str) -> PreparedObservationList:
+    prepared_observations = PreparedObservationList()
+    for obs in observations.get_observation_list():
+        cond_var = "{}_{}_cond".format(obs.id, prefix)
+        cond = PreparedObservationAtom(cond_var, obs.cond, 1)
+        attrs = []
+        for (idx, attr) in enumerate(obs.attrs):
+            # TODO: I asume that for observations and invariants init is always False
+            arg_var = "{}_{}_arg{}".format(obs.id, prefix, idx)
+            attrs.append(PreparedObservationAtom(arg_var, attr.value, attr.width, init=attr.init))
+        prepared_observations.add_observation(PreparedObservation(obs.id, cond, attrs, init=obs.init))
+        
     ##### 3. Update auxVars dictionary
-    for obsId in obs_dict.keys():
-        for obs in obs_dict[obsId]:
-            for var in collectVars(obs["expr"]):
-                if var not in auxVars_dict.keys():
-                    var_dict = {"width": 1, "value": var}
-                    auxVars_dict[var] = var_dict
+    for obs in prepared_observations.get_observation_list():
+        for obs_atom in [obs.cond] + obs.attrs:
+            for var in collectVars(obs_atom.expr):
+                # TODO: We will only add auxiliary variables with width 1. It seems like a bug, but I should fix that later
+                if var not in aux_var_dict.ids:
+                    aux_var_dict.add_aux_var_if_none(AuxVar(var, 1, var))
 
-    return obs_dict, auxVars_dict
+    return prepared_observations
 
-def initStateVars(variables, auxVars_dict, idx_dict, prefix):
+
+class InitialStateConstraint:
+    @typechecked
+    def __init__(self, id: str, var: str, expr: Expr, width: int, val: int):
+        self.id = id
+        self.var = var
+        self.expr = expr
+        self.width = width
+        self.val = val
+
+
+class InitialStateConstraintList:
+    @typechecked
+    def __init__(self):
+        self.ids = set()
+        self.constraints = []
+    
+    def get_constraints(self) -> List[InitialStateConstraint]:
+        return self.constraints[:]
+    
+    def get_all_blocks(self) -> List[InitialStateConstraint]:
+        return self.constraints[:]
+
+    @typechecked
+    def add_constraint(self, constraint: InitialStateConstraint):
+        assert constraint.id not in self.ids
+        self.constraints.append(constraint)
+        self.ids.add(constraint.id)
+
+    @typechecked
+    def collect_vars_from_expressions(self) -> set[str]:
+        ans = set()
+        for a in self.constraints:
+            ans = ans.union(collectVars(a.expr))
+        return ans
+
+
+@typechecked
+def init_initial_state_vars(variables: List[dict], aux_var_dict: AuxVarDict, prefix: str) -> InitialStateConstraintList:
     ##### 1. Parse state variables 
-    vars_dict = {} ## varId -> [ expr, width, level ]
-    for var in variables:
-        varId = var.get("id")
-        if varId in vars_dict.keys():
-            print(f"Duplicated variable id {varId}")
-            exit(1)
-        if var.get("width") is None:
+    constraints = InitialStateConstraintList()
+    # I am having a set here, because this is the only place that deals with state vars
+    id_set = set()
+    for d in variables:
+        id = d.get("id")
+        assert id not in id_set, "Duplicated variable id {}".format(id)
+        id_set.add(id)
+        # TODO: this is terrible choice. Also, one should be able to do that directly from Yosys
+        if "width" not in d.keys():
             width = 1 
         else:
-            width = var.get("width")
-        var = { "var": "{}_{}".format(varId, prefix), "expr" : var.get("expr") , "width" : width, "val": var.get("val") }
-        vars_dict[varId] = [var] 
+            width = d.get("width")
+        expr = d.get("expr")
+        var = "{}_{}".format(id, prefix)
+        val = d.get("val")
+        constraints.add_constraint(InitialStateConstraint(id, var, expr, width, val))
 
-    ##### 2. Expand observations (instantiate meta-vars)
-    idxs = idx_dict.keys()
-    for idx in idxs:
-        vars_dict = expandMetaVariable(idx, idx_dict[idx], vars_dict)
+    for var in constraints.collect_vars_from_expressions():
+        if var not in aux_var_dict.ids:
+            aux_var_dict.add_aux_var_if_none(AuxVar(var, 1, var))
 
-    ##### 3. Update auxVars dictionary
-    for varId in vars_dict.keys():
-        for var_ in vars_dict[varId]:
-            for var in collectVars(var_["expr"]):
-                if var not in auxVars_dict.keys():
-                    var_dict = {"width": 1, "value": var}
-                    auxVars_dict[var] = var_dict
-    return vars_dict, auxVars_dict
+    return constraints
 
 
 #### 
 #### Helper functions for metavariables
 #### 
 
-def initMetaVars(metavars):
-    idx_dict = {}
-    for idx in metavars:
-        idx_id = idx.get("id")
-        if idx_id is not None:
-            if idx_id not in idx_dict.keys():
-                if idx.get("range") is None:
-                    print(f"Missing range for index meta-variables {idx_id}")
-                    exit(1)
-                idx_dict[idx_id] = idx.get("range")
-            else:
-                print(f"Duplicated index meta-variable {idx_id}")
-                exit(1)
-        else:
-            print(f"Missing identifier in index meta-variable {idx}")
-            exit(1)
-    return idx_dict
 
 def expandMetaVariable(var: str, rng: int, dict_):
     newDict = {}

@@ -1,4 +1,5 @@
 from lark import Lark, tree, Token, Visitor
+from typeguard import typechecked
 
 
 expr_grammar = r"""
@@ -38,3 +39,20 @@ expr_grammar = r"""
  """
 
 parser = Lark(expr_grammar, start='expr', ambiguity='resolve') # ambiguity='explicit' blows up expansion
+
+
+@typechecked
+def collectVars(expr: str) -> set[str]:
+    varsSet = set()
+    tree = parser.parse(expr)
+    for varNode in tree.find_data("var"):
+        varName = ""
+        for child in varNode.children:
+            varName += child.value
+        varsSet.add(varName)
+    for varNode in tree.find_data("escapedvar"):
+        varName = ""
+        for child in varNode.children:
+            varName += child.value
+        varsSet.add(varName)
+    return varsSet

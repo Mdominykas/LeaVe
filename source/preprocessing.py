@@ -1,16 +1,21 @@
 from __future__ import absolute_import
 from __future__ import print_function
+from pathlib import Path
 import sys
 import os
 import time
 import re
+
+from typeguard import typechecked
+from auxilary_variables import AuxVarDict
 from config import CONF
 from datetime import datetime
 
-from observations import getIndexMetaVariables, replaceIndexMetaVariable
+from observations import ObservationList, getIndexMetaVariables, replaceIndexMetaVariable
 from util import *
 from counterexample_checking import renameDotNotation
 from verification import precomputing
+from verification_environment import VerificationEnvironment
 
 ctr = 0
 
@@ -110,32 +115,28 @@ def expandArrays(folder, toExpand):
             f.write(src)
 
 
-def preprocessing(to_expand, srcObservations, invariant, stateInvariant, auxVars, metaVars, cstrtype, usePredictor):
-
-    log("START")
-    
-    outFolder = CONF.outFolder
-    ## 0. copy source code to target
-    log("Setting up output folder")
-    run_process(["rm", "-rf", outFolder], CONF.verbose_preprocessing)
-    run_process(["cp", "-R", CONF.codeFolder, outFolder], CONF.verbose_preprocessing)
+@typechecked
+def preprocessing(common_env: VerificationEnvironment, base_ver_env: VerificationEnvironment, ind_ver_env: VerificationEnvironment, to_expand, src_observations: ObservationList, invariant: ObservationList, stateInvariant: ObservationList, auxVars: AuxVarDict, delayed_check_str: str, usePredictor: bool):
+    assert delayed_check_str == "delayedcheck", "I think that what this refers to"
 
     ## 1. Expanding arrays
     if to_expand != None and len(to_expand) > 0:
         log(f"Expanding arrays in {CONF.module}")
-        expandArrays(outFolder, to_expand)
+        expandArrays(common_env.target_str(), to_expand)
 
     
-    precomputing(srcObservations, invariant, stateInvariant, auxVars, metaVars, cstrtype, usePredictor)
+    precomputing(src_observations, invariant, stateInvariant, auxVars, delayed_check_str, common_env, base_ver_env, ind_ver_env, usePredictor)
     time1 = datetime.now()
     
-    renameDotNotation("{}/{}_base/{}".format(CONF.outFolder,cstrtype,CONF.prodCircuitTemplate.replace(".v", "_renamed.temp")), testbed=False)
-    renameDotNotation("{}/{}_inductive/{}".format(CONF.outFolder,cstrtype,CONF.prodCircuitTemplate.replace(".v", "_renamed.temp")), testbed=False)
+    assert CONF.prodCircuitTemplate == "prod.v", "I think this is the only possible template"
+    renameDotNotation(base_ver_env.target_path() / "prod_renamed.temp", testbed=False)
+    renameDotNotation(ind_ver_env.target_path() / "prod_renamed.temp", testbed=False)
 
-    run_process(["cp", "{}/{}".format(CONF.outFolder,CONF.moduleFile), "{}/{}_base/{}.v".format(CONF.outFolder,cstrtype,CONF.module)])
-    run_process(["cp", "{}/{}".format(CONF.outFolder,CONF.moduleFile), "{}/{}_inductive/{}.v".format(CONF.outFolder,cstrtype,CONF.module)])
-    run_process(["cp", "{}/{}".format(CONF.outFolder,CONF.prodCircuitTemplate.replace(".v", "_base.temp")), "{}/{}_base/{}".format(CONF.outFolder,cstrtype,CONF.prodCircuitTemplate.replace(".v", ".temp"))])
-    run_process(["cp", "{}/{}".format(CONF.outFolder,CONF.prodCircuitTemplate.replace(".v", "_inductive.temp")), "{}/{}_inductive/{}".format(CONF.outFolder,cstrtype,CONF.prodCircuitTemplate.replace(".v", ".temp"))])
+    assert CONF.moduleFile == CONF.module + ".v", "I think this holds, but idk what is written in configs"
+    base_ver_env.copy_file(common_env.target_path() / CONF.moduleFile, CONF.moduleFile)
+    ind_ver_env.copy_file(common_env.target_path() / CONF.moduleFile, CONF.moduleFile)
+    # base_ver_env.copy_file(base_ver_env.target_path() / "prod_renamed.temp", "prod.temp")
+    # ind_ver_env.copy_file(ind_ver_env.target_path() / "prod_renamed.temp", "prod.temp")
     time2 = datetime.now()
     logtimefile("\n\t\tTime for renaming the flattened product circuit: "+ str((time2- time1).seconds))
 

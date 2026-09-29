@@ -3,13 +3,21 @@ from pathlib import Path
 import subprocess
 
 from subprocess import run, PIPE, STDOUT
-from typing import List
+from typing import List, Tuple
 
 from typeguard import typechecked
 
+from auxilary_variables import AuxVarDict
 from config import CONF
-from observations import collectVars
+from observations import InitialStateConstraintList, PreparedObservationList, collectVars
+from rtl_parts import RTLMemory, RTLVariable
 from util import run_process
+
+def escape_id(id):
+    if (id.count("[")) and (id.count(".") == 0):
+        return "\\" + id
+    else:
+        return id
 
 class YosysCommand:
     def __init__(self):
@@ -119,7 +127,9 @@ class YosysCommandManager:
 
     @typechecked
     def run_from_script(self, script_path: str, verbose: bool=True):
+        print("script turi buti:", script_path)
         self.write_script(script_path)
+        print("nes sukuriau script:", script_path)
         cmd = [CONF.yosysPath]
         cmd.append("-s{}".format(script_path))
         if verbose and CONF.verbose_verification and CONF.verbose_external_processes:
@@ -280,37 +290,6 @@ class YosysCommandManager:
     def export_to_smt2(self, file_name: str, with_wires:bool=True):
         self.cmds.append(StringYosysCommand("write_smt2 " + (" -wires " if with_wires else "") + file_name))
 
-    def run_command(self, log=True):
-        yosys_script = self.build_cmd_string()
-        if log:
-            print("Yosys will run script: \"{}\"".format(yosys_script))
-
-        here = Path(__file__).resolve().parent
-        process = subprocess.run(
-            ['./yosys/yosys', '-p', yosys_script],
-            cwd=here,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            )
-
-        if process.stdout:
-            if log:
-                for line in process.stdout:
-                    print(line, end='')  # output lines as they appear
-
-        if process.returncode != 0:
-            print(f"\nYosys exited with return code {process.returncode}")
-            print("standard output was:")
-            for line in process.stdout:
-                print(line, end='')
-            print("Yosys error msgs:")
-            if process.stderr:
-                for line in process.stderr:
-                    print(line, end='')
-            return False
-        return True
-
     @typechecked
     def set_top_of_hierarchy(self, module_name: str):
         self.cmds.append(StringYosysCommand("hierarchy -top {}".format(module_name)))
@@ -342,7 +321,7 @@ class YosysCommandManager:
         self.add_opt()
         self.export_to_verilog("{}/{}.v".format(outFolder, module_name), selected=True)
         
-        script_file_path = "{}/{}_yosys.script".format(outFolder,suffix)
+        script_file_path = "{}/{}_yosys.script".format(outFolder, suffix)
         self.run_from_script(script_file_path)
 
     @typechecked
@@ -357,7 +336,7 @@ class YosysCommandManager:
         self.add_select_pass(module)
 
     @typechecked
-    def link_module(self, outFolder: str, module: str, obsDict, auxVars, suffix: str):
+    def link_module(self, outFolder: str, module: str, obs_dict: PreparedObservationList|InitialStateConstraintList, aux_vars: AuxVarDict, suffix: str):
         file_name = "{}/{}_{}.v".format(outFolder, module, suffix)
         self.add_read_verilog_single_file(file_name)
         self.add_select_pass(module)
@@ -365,15 +344,59 @@ class YosysCommandManager:
         
         self.add_module_pass(module, "{}_{}".format(module, suffix), suffix)
         
-        vars_ = set()
-        for obsId in obsDict.keys():
-            for obs in obsDict[obsId]:
-                vars_ = vars_.union(collectVars(obs.get("expr")) )
-        for v in vars_:
-            self.add_connect_port(suffix, v, auxVars[v]["value"])
+        vars = obs_dict.collect_vars_from_expressions()
+        for v in vars:
+            self.add_connect_port(suffix, v, aux_vars.get_aux_var(v).value)
 
         ports_to_expose = []
-        for obsId in obsDict.keys():
-            for obs in obsDict[obsId]:
-                ports_to_expose.append("{}/{}".format(module,obs.get("var")))
+        for obs_atom in obs_dict.get_all_blocks():
+            ports_to_expose.append("{}/{}".format(module , obs_atom.var))
         self.add_expose_pass(ports_to_expose)
+
+    @typechecked
+    def add_show_regs_mems_pass(self, out_folder: str, module: str):
+        self.add_string_pass("show_regs_mems -o {} {}".format(out_folder, module))
+
+    @typechecked
+    def show_regs_mems_workflow(self, out_folder: str, module: str) -> tuple[List[RTLMemory], List[RTLVariable]]:
+        self.add_read_verilog_whole_folder(out_folder)
+        self.set_top_of_hierarchy(module)
+        if CONF.usePredictor:
+            relative_path = Path(CONF.wireLiftingPath)
+            self.add_wire_lifting_pass(str(relative_path.resolve()))
+        self.add_proc_no_rom()
+        self.add_flattening()
+        self.add_select_pass(module)
+        self.add_show_regs_mems_pass(out_folder, module)
+        script_name = "{}/show_yosys.script".format(out_folder)
+        self.run_from_script(script_name)
+
+        memories, variables = [], []
+        f = open("{}/regs_mems.dat".format(out_folder))
+        for line in f:
+            parts = line.split(" ")
+            # Memories: name width size filename
+            if parts[0] == "Memories":
+                id = parts[1]
+                if id not in CONF.memoryList:
+                    if (not id.count("$")) and (not (id.startswith("_") and id.endswith("_"))):
+                        width = int(parts[2])
+                        size = int(parts[3])
+                        filename = (parts[4].replace("\n", "")).split("/")[-1]
+                        memories.append(RTLMemory(id, width, size, filename))
+            # create the invariants for registers 
+            # Registers: name width
+            elif parts[0] == "Variables":
+                id = parts[1]
+                width = int(parts[2])
+                if (not id.count("$")) and (not (id.startswith("_") and id.endswith("_"))):
+                    id = escape_id(id)
+                    variables.append(RTLVariable(id, width))
+            elif parts[0] == "Registers":
+                # TODO: I don't understand, why this is not being processed. I think it should be useful in some way...
+                pass
+            else:
+                assert False, "I don't expect anything else in that file, but I found: " + line
+        f.close()
+
+        return memories, variables

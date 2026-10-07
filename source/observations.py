@@ -299,7 +299,7 @@ def initObservations(observations: ObservationList, aux_var_dict: AuxVarDict, pr
 
 class InitialStateConstraint:
     @typechecked
-    def __init__(self, id: str, var: str, expr: Expr, width: int, val: int):
+    def __init__(self, id: str, var: str, expr: Expr, width: int, val: int|None):
         self.id = id
         self.var = var
         self.expr = expr
@@ -351,6 +351,10 @@ def init_initial_state_vars(variables: List[dict], aux_var_dict: AuxVarDict, pre
         expr = d.get("expr")
         var = "{}_{}".format(id, prefix)
         val = d.get("val")
+        # print("id = {}, expr = {}, val = {}".format(id, expr, val))
+        # print("type is: ", type(val))
+        if isinstance(val, str) and 'b' in val:
+            val = int(val.split("'b")[1], 2)
         constraints.add_constraint(InitialStateConstraint(id, var, expr, width, val))
 
     for var in constraints.collect_vars_from_expressions():

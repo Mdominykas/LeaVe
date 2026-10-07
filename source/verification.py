@@ -164,11 +164,12 @@ def satisfaction_of_initial_state_constraints(wireId: str, constraints: InitialS
     for c in constraints.get_constraints():
         right = "{}_{}_right".format(c.var, prefix)
         left = "{}_{}_left".format(c.var, prefix)
-        constr_str = "{} {} {}".format(left, CONF.selfCompositionEquality, right)
-        constr_str_list.append(constr_str)
+        left_eq_right = "{} {} {}".format(left, CONF.selfCompositionEquality, right)
+        constr_str_list.append(left_eq_right)
 
-        left_eq_val = "{} {} {}".format(left, CONF.selfCompositionEquality, c.val)
-        constr_str_list.append(left_eq_val)
+        if c.val is not None:
+            left_eq_val = "{} {} {}".format(left, CONF.selfCompositionEquality, c.val)
+            constr_str_list.append(left_eq_val)
     
     result = ""
     if len(constr_str_list) > 0:

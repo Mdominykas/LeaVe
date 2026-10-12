@@ -15,7 +15,7 @@ expr_grammar = r"""
     !concatexpr: "{"  expr ("," expr)+ "}"
     !uop: "!" | "~"
     !binop: "+" | "-" | "*" | "%"
-        | "&&" | "||" | "==" | "!==" | "!="
+        | "&&" | "||" | "==" | "!==" | "!=" | "<="
     !wire: var
         | escapedvar 
         | value

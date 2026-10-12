@@ -77,9 +77,14 @@ class ObservationList:
     # TODO: I think this might be wrong...
     observations: list[PreparedObservation]
 
-    def __init__(self):
+    def __init__(self, combined_name: str|None = None):
         self.observation_ids = {}
         self.observations = []
+        self.combined_name = combined_name
+
+    def get_combined_name(self) -> str:
+        assert self.combined_name is not None
+        return self.combined_name
     
     @typechecked
     def add_observation(self, observation: Observation, okay_if_identical_exists=True):
@@ -189,9 +194,14 @@ class PreparedObservationList:
     observation_ids: dict[str, None]
     observations: list[PreparedObservation]
     
-    def __init__(self):
+    def __init__(self, combined_name: str|None = None):
         self.observation_ids = {}
         self.observations = []
+        self.combined_name = combined_name
+
+    def get_combined_name(self) -> str:
+        assert self.combined_name is not None
+        return self.combined_name
     
     @typechecked
     def add_observation(self, observation: PreparedObservation, okay_if_identical_exists=True):
@@ -275,7 +285,7 @@ class PreparedObservationList:
 
 @typechecked
 def initObservations(observations: ObservationList, aux_var_dict: AuxVarDict, prefix: str) -> PreparedObservationList:
-    prepared_observations = PreparedObservationList()
+    prepared_observations = PreparedObservationList(combined_name=observations.combined_name)
     for obs in observations.get_observation_list():
         cond_var = "{}_{}_cond".format(obs.id, prefix)
         cond = PreparedObservationAtom(cond_var, obs.cond, 1)
@@ -309,13 +319,21 @@ class InitialStateConstraint:
 
 class InitialStateConstraintList:
     @typechecked
-    def __init__(self):
+    def __init__(self, combined_name: str|None = None):
         self.ids = set()
         self.constraints = []
+        self.combined_name = combined_name
+
+    @typechecked
+    def get_combined_name(self) -> str:
+        assert self.combined_name is not None
+        return self.combined_name
     
+    @typechecked
     def get_constraints(self) -> List[InitialStateConstraint]:
         return self.constraints[:]
     
+    @typechecked
     def get_all_blocks(self) -> List[InitialStateConstraint]:
         return self.constraints[:]
 
@@ -334,9 +352,9 @@ class InitialStateConstraintList:
 
 
 @typechecked
-def init_initial_state_vars(variables: List[dict], aux_var_dict: AuxVarDict, prefix: str) -> InitialStateConstraintList:
+def init_initial_state_vars(variables: List[dict], aux_var_dict: AuxVarDict, combined_name: str, prefix: str) -> InitialStateConstraintList:
     ##### 1. Parse state variables 
-    constraints = InitialStateConstraintList()
+    constraints = InitialStateConstraintList(combined_name=combined_name)
     # I am having a set here, because this is the only place that deals with state vars
     id_set = set()
     for d in variables:

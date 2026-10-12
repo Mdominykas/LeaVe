@@ -49,6 +49,7 @@ class ConfCls:
     #invariant
     invariant = []
     stateInvariant = []
+    inductiveStateInvariant = []
 
     # observations
     srcObservations = []
@@ -75,6 +76,8 @@ class ConfCls:
     verbose_verification = True
     verbose_counterexample_checking = True
     verbose_external_processes = True
+
+    do_inductive_invariant_verification = None
 
     def set(self, name, value):
         options = {

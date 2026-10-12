@@ -37,6 +37,7 @@ class StringYosysCommand(YosysCommand):
         return self.cmd_str
 
 
+# TODO: Ican start using this thing instead of manual
 class YosysSMTCommandManager:
     def __init__(self, yosys_smtbmc_path):
         # TODO: rewrite with a map, if I end up using this thing, cause that can prevent some errors
@@ -307,8 +308,12 @@ class YosysCommandManager:
         self.cmds.append(StringYosysCommand("connect -port {} {} {}".format(cell, port, expr)))
 
     @typechecked
-    def add_expose_pass(self, ports_to_expose: List[str]):
-        self.cmds.append(StringYosysCommand("expose {} ".format(" ".join(ports_to_expose))))
+    def add_expose_pass(self, ports_to_expose: List[str], silent:bool=True):
+        if silent:
+            prefix = "tee -q "
+        else:
+            prefix = ""
+        self.cmds.append(StringYosysCommand(prefix + "expose {} ".format(" ".join(ports_to_expose))))
 
     # Btw, I don't know what this one does
     @typechecked

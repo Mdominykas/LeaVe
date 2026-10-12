@@ -28,11 +28,11 @@ struct AddModulePass : public Pass {
         for (auto &cell : main_module->cells_) {
             //stuttering registers
             if (RTLIL::builtin_ff_cell_types().count(cell.second->type)){
-                log("---------------------------------stuttering register cells------------------------------------------\n");
+                // log("---------------------------------stuttering register cells------------------------------------------\n");
                 RTLIL::SigSpec APort = cell.second->getPort(ID::D);
                 RTLIL::SigSpec BPort = cell.second->getPort(ID::Q);
                 int width = (cell.second->parameters["\\WIDTH"]).as_int();
-                log_cell(cell.second);  
+                // log_cell(cell.second);  
                 
                 std::string intermedia_signal_name = RTLIL::escape_id(RTLIL::id2cstr((cell.second->name)) + std::string("_intermedia_signal"));
                 std::string stuttering_cell_name = RTLIL::escape_id(RTLIL::id2cstr((cell.second->name)) + std::string("_stuttering_cell"));
@@ -43,22 +43,22 @@ struct AddModulePass : public Pass {
                 
                 // update the register cell with the intermedia signal
                 cell.second->setPort(ID::D, intermedia_signal);
-                log_cell(cell.second);
+                // log_cell(cell.second);
 
                 // generate an conditional assignment base on the stuttering signal
                 RTLIL::Cell *stuttering_assignment = main_module->addCell(stuttering_cell_name, ID($mux));
-                log("---------------------------------Width------------------------------------------\n");
+                // log("---------------------------------Width------------------------------------------\n");
                 stuttering_assignment->parameters["\\WIDTH"] = width;
-                log("---------------------------------Y------------------------------------------\n");
+                // log("---------------------------------Y------------------------------------------\n");
                 stuttering_assignment->setPort(ID::Y, intermedia_signal);
-                log("---------------------------------S------------------------------------------\n");
+                // log("---------------------------------S------------------------------------------\n");
                 stuttering_assignment->setPort(ID::S, main_module->wire(stuttering_signal));
-                log("---------------------------------A------------------------------------------\n");
+                // log("---------------------------------A------------------------------------------\n");
                 stuttering_assignment->setPort(ID::A, APort);
-                log("---------------------------------B------------------------------------------\n"); 
+                // log("---------------------------------B------------------------------------------\n"); 
                 stuttering_assignment->setPort(ID::B, BPort);
 
-                log_cell(stuttering_assignment);              
+                // log_cell(stuttering_assignment);              
                 
                 
             }      

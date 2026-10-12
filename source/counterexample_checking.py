@@ -34,7 +34,9 @@ def compileWithIVerilog(file,outFolder):
     return "{}/{}".format(outFolder, CONF.prodCircuitTemplate.replace(".v",""))
 
 @typechecked
-def runTestbed(testbed) -> list[str]:
+def runTestbed(testbed, prod_type: str) -> list[str]:
+    assert prod_type == "trg" or prod_type == "provable_inv", "prodType is always trg or inductive_state_invariant"
+
     cmd = [CONF.vvpPath, testbed]
     ctx = run_process(cmd, CONF.verbose_counterexample_checking)
     cycles = ctx.split(">>>>>")
@@ -50,27 +52,25 @@ def runTestbed(testbed) -> list[str]:
             for inv in invs:
                 tbname = inv.split(" ")
                 if (tbname[-1] == "0" or tbname[-1] == "x") and len(tbname) == 2:
-                    name = tbname[0].split("_trg")[0].split(".")[-1]
-                    if name == " ":
-                        logtimefile("Failed to prove " + name)
-                        logtimefile("\nVerification failed!!!\n ")
-                        logfile("\nVerification failed!!!\n ")
-                        exit(1)
+                    name = tbname[0].split("_" + prod_type)[0].split(".")[-1]
+                    if name == "trg_equiv":
+                        continue
+                    assert name != " ", "This is a weird condition from Leave. I hope it is never false"
                     diffInvList.append(name)
-            if len(diffInvList) < 2:
+                    print("pridedu: ", name, " i diffInvList")
+            if len(diffInvList) == 0:
                 diffcycle = False
             else:
                 diffcycle = True
 
-    print("diffInvList: ",diffInvList[0:-1])
-    return diffInvList[0:-1]
+    return diffInvList
 
-                    
 
 
 @typechecked
-def displayObservations(counterexample: str, obs_list: PreparedObservationList, prodType: str, keyword: str):
-    debug = True
+def displayObservations(counterexample: str, obs_list: PreparedObservationList, wire_name: str, suffix: str, keyword: str):
+    assert wire_name == "trg_equiv" or wire_name == "inductive_state_invariant", "The only cases I will allow"
+    assert suffix == "trg" or suffix == "provable_inv", "prodType is always trg or provable_inv"
     if len(obs_list.observations) > 0:
         code = ""
         with open(counterexample, "r") as f:
@@ -80,15 +80,13 @@ def displayObservations(counterexample: str, obs_list: PreparedObservationList, 
             displayObs = f"\talways @(posedge {CONF.yosysCtxClock}) begin\n"
         else:
             displayObs = f"\talways @* begin\n"
+        
         displayObs += f"\t\t$display(\">>>>> CYCLE %0d -- {keyword}\", {CONF.yosysCtxCycle});\n"
+
         for id in obs_list.observation_ids.keys():
-            displayObs += f"\t\t $display(\"{CONF.yosysCtxUUT}.{id}_{prodType} %b\", {CONF.yosysCtxUUT}.{id}_{prodType});\n"
-        displayObs += f"\t\t$display(\"{CONF.yosysCtxUUT}.{prodType}_equiv %b\", {CONF.yosysCtxUUT}.{prodType}_equiv);\n"
-        if debug:
-            for obs in obs_list.observations:
-                displayObs += f"\t\t$display(\">>> {obs.id}\");\n"
-                for atom in obs.attrs:
-                    displayObs += f"\t\t$display(\"{atom.var} %b =?= %b\", {CONF.yosysCtxUUT}.{atom.var}_{prodType}_left,  {CONF.yosysCtxUUT}.{atom.var}_{prodType}_right);\n"
+            displayObs += f"\t\t $display(\"{CONF.yosysCtxUUT}.{id}_{suffix} %b\", {CONF.yosysCtxUUT}.{id}_{suffix});\n"
+        displayObs += f"\t\t$display(\"{CONF.yosysCtxUUT}.{wire_name} %b\", {CONF.yosysCtxUUT}.{wire_name});\n"
+        # TODO: it might be useful to output stuff to have an easier analysis of test cases (like analyzed counterexamples or something)
         displayObs += "\tend\n"
         displayObs += "endmodule\n"
 
@@ -164,7 +162,9 @@ def renameDotNotation(file, testbed: bool):
         f.write(code)
     timein4 = datetime.now()
     # logtimefile("\n\t\t\tTime for replacing illegal strings: "+ str((timein4- timein3).seconds))
+
 def fixClock(file):
+    # TODO: check if this actually helps somewhere
     code = ""
     with open(file, "r") as f:
         code = f.read()
@@ -182,7 +182,7 @@ def fixClock(file):
         
 
 @typechecked
-def runCounterexample(common_env: VerificationEnvironment, specific_env: VerificationEnvironment, counterexample: str, trg_observations: PreparedObservationList) -> list[str]:
+def runCounterexample(specific_env: VerificationEnvironment, counterexample: str, trg_observations: PreparedObservationList, wire_name: str, suffix: str) -> list[str]:
     log("START - RUN CTX")
     time1 = datetime.now()
 
@@ -196,7 +196,7 @@ def runCounterexample(common_env: VerificationEnvironment, specific_env: Verific
 
     # 2st append display statements to the counterexample
     log(f"Append display statements")
-    displayObservations(counterexample, trg_observations, "trg", "ASSERT")
+    displayObservations(counterexample, trg_observations, wire_name, suffix, "ASSERT")
 
     # 3st hack:
     # iverilog seems to have trouble with using dot notation, which is used by yosys
@@ -208,7 +208,7 @@ def runCounterexample(common_env: VerificationEnvironment, specific_env: Verific
     log(f"Compile counterexample testbed")
     tb = compileWithIVerilog(counterexample, specific_env.target_str())
     log(f"Run counterexample testbed")
-    diffInvList = runTestbed(tb)
+    diffInvList = runTestbed(tb, suffix)
 
     time2 = datetime.now()
     logtimefile("\n\t\tTime for analyzing counterexample: "+ str((time2 - time1).seconds))

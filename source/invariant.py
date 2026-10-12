@@ -35,7 +35,7 @@ def initInvariant(common_env: VerificationEnvironment, filtertype) -> tuple[AuxV
     yosys_cmd_manager = YosysCommandManager()
     memories, variables = yosys_cmd_manager.show_regs_mems_workflow(common_env.target_str(), CONF.module)
 
-    invariant: ObservationList = ObservationList()
+    invariant: ObservationList = ObservationList(combined_name="trg_equiv")
     to_expand = []
 
     aux_var_dict: AuxVarDict = get_aux_vars_from_config(CONF)
@@ -57,7 +57,7 @@ def initInvariant(common_env: VerificationEnvironment, filtertype) -> tuple[AuxV
 
 @typechecked
 def refineInvariant(invariant: ObservationList, diffInvList: list[str]) -> ObservationList:
-    ans = ObservationList()
+    ans = ObservationList(combined_name=invariant.combined_name)
     for obs in invariant.observations:
         if (obs.id not in diffInvList) and (rename(obs.id) not in diffInvList):
             ans.add_observation(obs)

@@ -3,6 +3,7 @@ from __future__ import print_function
 from pathlib import Path
 import sys
 import os
+from typing import List
 from typeguard import typechecked
 import yaml
 from optparse import OptionParser
@@ -13,7 +14,7 @@ from datetime import datetime
 
 from config import CONF
 from preprocessing import preprocessing
-from verification import verify
+from verification import verify, verify_invariants
 from counterexample_checking import runCounterexample
 from invariant import doesContainAllObservations, initInvariant
 from invariant import refineInvariant
@@ -21,73 +22,66 @@ from verification_environment import VerificationEnvironment
 
 
 @typechecked
-def microEquivCheck(common_env: VerificationEnvironment, base_ver_env: VerificationEnvironment, ind_ver_env: VerificationEnvironment, invariant: ObservationList, target_observations: ObservationList, delayed_check_str: str):
+def microEquivCheck(base_ver_env: VerificationEnvironment, ind_ver_env: VerificationEnvironment, invariant: ObservationList, target_observations: ObservationList, delayed_check_str: str):
     counter = 1
-    basepass = False
-    starttime = datetime.now()
-    # TODO: this can be done with one loop. I think I should make some environment (base/inductive) and then simplify everything by a lot
-    while not invariant.is_empty():
-        logfile("\nBegin the {}th loop...\n".format(counter))
-        logtimefile("\n\n\tTime for the {}th loop...".format(counter))
-        counter+=1
-        # TODO: I would like to have this in log, but I don't want to edit it now
-        # logfile("\tThe invariant for verification is:\n" + "".join(inv2str(invariant)))
-        if not basepass: 
-            # 1.1 verification_base
-            print("Checking the base case")
-            logfile("\n3.1. Checking the micro-equivalence relation...\n")
-            logfile("\n3.1.1. Checking the base case...\n")
-            verifStatus, cex, inv = verify(common_env, base_ver_env, invariant, "base", delayed_check_str)
+    timers = [datetime.now()]
+    for (case_name, specific_env) in [("base", base_ver_env), ("inductive", ind_ver_env)]:
+        while not invariant.is_empty():
+            logfile("\nBegin the {}th loop...\n".format(counter))
+            logtimefile("\n\n\tTime for the {}th loop...".format(counter))
+            counter += 1
+            print(f"Checking the {case_name} case")
+            logfile("\nChecking the micro-equivalence relation...\n")
+            logfile(f"\nChecking the {case_name} case...\n")
+            verifStatus, cex, inv = verify(specific_env, invariant, case_name, delayed_check_str)
             print(verifStatus)
 
             if verifStatus == "FAIL":
-                diffInvList = runCounterexample(common_env, base_ver_env, cex, inv)
-                logfile("  The base step is not satisfied!\n" + "\tthe difference set of invariant is:\n------\n"+ "\n".join(diffInvList)+"\n------\n")
-                print("The base case is not satisfied!")
+                diffInvList = runCounterexample(specific_env, cex, inv, target_observations.get_combined_name(), "trg")
+                logfile(f"  The {case_name} step is not satisfied!\n" + "\tthe difference set of invariant is:\n------\n"+ "\n".join(diffInvList)+"\n------\n")
+                print(f"The {case_name} case is not satisfied!")
                 if diffInvList == []:
                     logfile("  Nothing learned from counterexample! The result is UNKNOWN!")
                     print("Nothing learned from counterexample!")
                     return False, None
                 invariant = refineInvariant(invariant, diffInvList)
-                continue
-            else:
-                basepass = True
-                logfile("  The base case is satisfied!\n")
-                basetime = datetime.now()
-                continue
-        else:
-            # 1.2 verification_inductive
-            print("  Checking the inductive step")
-            logfile("\n\t Checking the inductive step...\n")
-            verifStatus, cex, inv = verify(common_env, ind_ver_env, invariant, "inductive", delayed_check_str)
-            if verifStatus == "FAIL":
-                print("The inductive step is not satisfied!")
-                diffInvList = runCounterexample(common_env, ind_ver_env, cex, inv)
-                logfile("\tThe inductive step is not satisfied!\n" + "\tthe difference set of invariant is:\n------\n"+ "\n".join(diffInvList)+"\n------\n")
-                if diffInvList == []:
-                    print("Nothing learned from counterexample!")
-                    logfile("\tNothing learned from counterexample! The result is UNKNOWN!")
-                    return False, None
-                invariant = refineInvariant(invariant, diffInvList)
                 if not doesContainAllObservations(invariant, target_observations):
                     logfile("Target observations are no longer part of invariant. Breaking early")
                     return False, []
-                continue
             else:
-                logfile("\tThe inductive step is satisfied!\n")
-                invtime = datetime.now()
-                # TODO: I would like to have this in log, but I don't want to edit it now
-                # logfile("\tThe invariant learned is:\n" + "".join(inv2str(invariant)))
-                # print("The invariant learned is: \n",invariant)
-                
-                logfile("\n\n\tTime for base step: "+ str((basetime- starttime).seconds))
-                logfile("\n\tTime for inductive step: "+ str((invtime - basetime).seconds))
-                logtimefile("\n\n\tTime for base step: "+ str((basetime- starttime).seconds))
-                logtimefile("\n\tTime for inductive step: "+ str((invtime - basetime).seconds))
-                return True, invariant
-    logfile("  \n\t No invariant found!\n")
-    return False, None
+                logfile(f"  The {case_name} case is satisfied!\n")
+                break
+        timers.append(datetime.now())
+    start_time = timers[0]
+    base_time = timers[1]
+    inv_time = timers[2]
+    logfile("\n\n\tTime for base step: "+ str((base_time- start_time).seconds))
+    logfile("\n\tTime for inductive step: "+ str((inv_time - base_time).seconds))
+    logtimefile("\n\n\tTime for base step: "+ str((base_time- start_time).seconds))
+    logtimefile("\n\tTime for inductive step: "+ str((inv_time - base_time).seconds))
+    return not invariant.is_empty(), invariant
 
+@typechecked
+def check_inductive_invariants(base_ver_env: VerificationEnvironment, ind_ver_env: VerificationEnvironment, inductive_state_invariant: ObservationList, delayed_check_str: str) -> List[str]:
+    suffix = "provable_inv"
+    dropped_invariants = []
+    counter = 1
+    timers = [datetime.now()]
+    for (case_name, specific_env) in [("base", base_ver_env), ("inductive", ind_ver_env)]:
+        print(f"starting {case_name} case")
+        while not inductive_state_invariant.is_empty():
+            counter += 1
+            verifStatus, cex, inv = verify_invariants(specific_env, inductive_state_invariant, case_name, delayed_check_str, suffix)
+            if verifStatus == "FAIL":
+                diffInvList = runCounterexample(specific_env, cex, inv, inv.get_combined_name(), suffix)
+                logfile(f"  The {case_name} step is not satisfied!\n" + "\tthe difference set of invariant is:\n------\n"+ "\n".join(diffInvList)+"\n------\n")
+                dropped_invariants += diffInvList
+                if diffInvList == []:
+                    assert False, "I don't think this should happen"
+                inductive_state_invariant = refineInvariant(inductive_state_invariant, diffInvList)
+            else:
+                break
+    return dropped_invariants
 
 def main():
     INFO = "Verification of contract satisfaction"
@@ -108,6 +102,7 @@ def main():
     optparser.add_option("-c", dest="clk", action="append",
                          default='clk', help="Clock Signal Name")
     optparser.add_option("--usePredictor", action="store_true", dest="usePredictor", default=False, help="Enable the predictor")
+    optparser.add_option("--validateInductiveStateInvariants", action="store_true", dest="validateInductiveStateInvariants", default=False, help="Check only i")
 
     (options, args) = optparser.parse_args()
 
@@ -156,13 +151,21 @@ def main():
     # generating toexpandArray
     toexpandArray = to_expand + CONF.expandArrays
     # normal pipeline invariant
-    stateInvariant = ObservationList()
-    stateInvariant.extend_with_observation([Observation.from_dict(d) for d in CONF.stateInvariant])
+    state_assumptions = ObservationList(combined_name="state_assumptions")
+    state_assumptions.extend_with_observation([Observation.from_dict(d) for d in CONF.stateInvariant])
+    
+    # provable state invariants
+    inductive_state_invariants = ObservationList(combined_name="inductive_state_invariant")
+    if options.validateInductiveStateInvariants:
+        CONF.do_inductive_invariant_verification = True
+        inductive_state_invariants.extend_with_observation([Observation.from_dict(d) for d in CONF.inductiveStateInvariant])
+    else:
+        state_assumptions.extend_with_observation([Observation.from_dict(d) for d in CONF.inductiveStateInvariant])
     # observations
 
-    src_observations = ObservationList()
+    src_observations = ObservationList(combined_name="src_equiv")
     src_observations.extend_with_observation([Observation.from_dict(d) for d in CONF.srcObservations])
-    trg_observations = ObservationList()
+    trg_observations = ObservationList(combined_name="trg_equiv")
     trg_observations.extend_with_observation([Observation.from_dict(d) for d in CONF.trgObservations])
     
     assert options.usePredictor == CONF.usePredictor, "Both options for predictors are different. There is an error in one of the options"
@@ -187,24 +190,34 @@ def main():
     ind_ver_env = VerificationEnvironment(ind_folder, source=common_env.target_path())
 
 
-    preprocessing(common_env, base_ver_env, ind_ver_env, toexpandArray, src_observations, invariant, stateInvariant, auxVars, delayed_check_str, usePredictor)
+    preprocessing(common_env, base_ver_env, ind_ver_env, toexpandArray, src_observations, invariant, state_assumptions, inductive_state_invariants, auxVars, delayed_check_str, usePredictor)
     time2 = datetime.now() 
-    logtimefile("\n\n2. Start the verification...")
-    State, invariant = microEquivCheck(common_env, base_ver_env, ind_ver_env, invariant, trg_observations, delayed_check_str)
-    if State:    
-        logfile("\n\n3. Check the satisfaction based on learned strongest attacker.\n")
-        if doesContainAllObservations(invariant, trg_observations):
-            logfile("\n\n\tVerification passed!!\n\n")
-            logtimefile("\n\n\tVerification passed!!\n\n")
-            logfile("\n\tThe CPU is SECURE under the attack w.r.t the contract!!")
+
+    if options.validateInductiveStateInvariants:
+        dropped_invariants = check_inductive_invariants(base_ver_env, ind_ver_env, inductive_state_invariants, delayed_check_str)
+        if dropped_invariants:
+            print("Verification dropped these invariants: ", dropped_invariants)
+            # TODO: change this somehow
+            logfile("\n\tThe CPU is VULNERABLE under the attack w.r.t the contract!!")
         else:
-            logfile("\n\tThe CPU is VULNERABLE under the attack w.r.t the contract!!")
+            logfile("\n\tThe CPU is SECURE under the attack w.r.t the contract!!")
     else:
-        if invariant is not None:
-            logfile("\n\tThe CPU is VULNERABLE under the attack w.r.t the contract!!")
-    time3 = datetime.now()  
-    logtimefile("\n\n\tTime for preprocessing: "+ str((time2- time1).seconds))
-    logtimefile("\n\tTime for learning the strongest attacker: "+ str((time3- time2).seconds))
+        logtimefile("\n\n2. Start the verification...")
+        State, invariant = microEquivCheck(base_ver_env, ind_ver_env, invariant, trg_observations, delayed_check_str)
+        if State:    
+            logfile("\n\n3. Check the satisfaction based on learned strongest attacker.\n")
+            if doesContainAllObservations(invariant, trg_observations):
+                logfile("\n\n\tVerification passed!!\n\n")
+                logtimefile("\n\n\tVerification passed!!\n\n")
+                logfile("\n\tThe CPU is SECURE under the attack w.r.t the contract!!")
+            else:
+                logfile("\n\tThe CPU is VULNERABLE under the attack w.r.t the contract!!")
+        else:
+            if invariant is not None:
+                logfile("\n\tThe CPU is VULNERABLE under the attack w.r.t the contract!!")
+        time3 = datetime.now()  
+        logtimefile("\n\n\tTime for preprocessing: "+ str((time2- time1).seconds))
+        logtimefile("\n\tTime for learning the strongest attacker: "+ str((time3- time2).seconds))
 
 
 

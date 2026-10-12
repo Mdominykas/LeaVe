@@ -116,7 +116,7 @@ def expandArrays(folder, toExpand):
 
 
 @typechecked
-def preprocessing(common_env: VerificationEnvironment, base_ver_env: VerificationEnvironment, ind_ver_env: VerificationEnvironment, to_expand, src_observations: ObservationList, invariant: ObservationList, stateInvariant: ObservationList, auxVars: AuxVarDict, delayed_check_str: str, usePredictor: bool):
+def preprocessing(common_env: VerificationEnvironment, base_ver_env: VerificationEnvironment, ind_ver_env: VerificationEnvironment, to_expand, src_observations: ObservationList, invariant: ObservationList, state_assumptions: ObservationList, inductive_state_invariant: ObservationList, auxVars: AuxVarDict, delayed_check_str: str, usePredictor: bool):
     assert delayed_check_str == "delayedcheck", "I think that what this refers to"
 
     ## 1. Expanding arrays
@@ -125,7 +125,7 @@ def preprocessing(common_env: VerificationEnvironment, base_ver_env: Verificatio
         expandArrays(common_env.target_str(), to_expand)
 
     
-    precomputing(src_observations, invariant, stateInvariant, auxVars, delayed_check_str, common_env, base_ver_env, ind_ver_env, usePredictor)
+    precomputing(src_observations, invariant, state_assumptions, inductive_state_invariant, auxVars, delayed_check_str, common_env, base_ver_env, ind_ver_env, usePredictor)
     time1 = datetime.now()
     
     assert CONF.prodCircuitTemplate == "prod.v", "I think this is the only possible template"

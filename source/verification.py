@@ -251,7 +251,7 @@ def selfCompositionCycleDelayedCheck(src_obs_list: PreparedObservationList, trg_
     verificationConditions += f"\t end\n"
 
     verificationConditions += f"\t reg {delayed_trg};\n"
-    verificationConditions += VBuild.declare_wire(delayed_trg_now, VBuild.on_cycle(1, trg)) + "\n"
+    verificationConditions += "\t " + VBuild.declare_wire(delayed_trg_now, VBuild.on_cycle(1, trg)) + "\n"
     verificationConditions += f"\t reg delayed_base_equiv;\n"
     verificationConditions += f"\t always @ (posedge {clock}) begin\n"
     verificationConditions += f"\t\t {delayed_trg} = {delayed_trg} && ({VBuild.on_cycle(1, trg)});\n"
@@ -753,7 +753,7 @@ def verify(specific_env: VerificationEnvironment, trgObservations: ObservationLi
 
 
 @typechecked
-def verify_invariants(specific_env: VerificationEnvironment, inductive_state_invariant: ObservationList, cstrtype: str, filtertype: str, 
+def verify_invariants(specific_env: VerificationEnvironment, inductive_state_invariant: ObservationList, case_name: str, filtertype: str, 
 suffix) -> tuple[str, str|None, PreparedObservationList]:
     print("PRADEDU VERIFICATION")
 
@@ -811,7 +811,12 @@ suffix) -> tuple[str, str|None, PreparedObservationList]:
         cmd = [CONF.yosysBMCPath, "-s", CONF.yosysBMCSolver]
         assert filtertype == "delayedcheck", "The only filtertype that is implemented"
 
-        cmd += ["-t", "1:2"]
+        if case_name == "base":
+            cmd += ["-t", "1"]
+        elif case_name == "inductive":
+            cmd += ["-t", "1:2"]
+        else:
+            assert False, "case must be base or inductive"
         
         cmd += ["--dump-vlogtb" , "{}/{}_tb.v".format(specific_env.target_str(), targetName)] 
         cmd += ["--dump-smtc", "{}/{}_smtc".format(specific_env.target_str(), targetName)]

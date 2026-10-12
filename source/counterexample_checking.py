@@ -34,7 +34,7 @@ def compileWithIVerilog(file,outFolder):
     return "{}/{}".format(outFolder, CONF.prodCircuitTemplate.replace(".v",""))
 
 @typechecked
-def runTestbed(testbed, prod_type: str) -> list[str]:
+def runTestbed(testbed, prod_type: str, wire_to_ignore: str) -> list[str]:
     assert prod_type == "trg" or prod_type == "provable_inv", "prodType is always trg or inductive_state_invariant"
 
     cmd = [CONF.vvpPath, testbed]
@@ -53,7 +53,7 @@ def runTestbed(testbed, prod_type: str) -> list[str]:
                 tbname = inv.split(" ")
                 if (tbname[-1] == "0" or tbname[-1] == "x") and len(tbname) == 2:
                     name = tbname[0].split("_" + prod_type)[0].split(".")[-1]
-                    if name == "trg_equiv":
+                    if name == wire_to_ignore:
                         continue
                     assert name != " ", "This is a weird condition from Leave. I hope it is never false"
                     diffInvList.append(name)
@@ -208,7 +208,7 @@ def runCounterexample(specific_env: VerificationEnvironment, counterexample: str
     log(f"Compile counterexample testbed")
     tb = compileWithIVerilog(counterexample, specific_env.target_str())
     log(f"Run counterexample testbed")
-    diffInvList = runTestbed(tb, suffix)
+    diffInvList = runTestbed(tb, suffix, wire_name)
 
     time2 = datetime.now()
     logtimefile("\n\t\tTime for analyzing counterexample: "+ str((time2 - time1).seconds))

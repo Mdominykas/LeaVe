@@ -142,6 +142,11 @@ def main():
     print("common_env_folder:", common_env_folder)
     common_env = VerificationEnvironment(common_env_folder, source=Path(CONF.codeFolder))
 
+    config_storage_folder = Path(CONF.outFolder + "/" + "config_storage").resolve()
+    config_storage = VerificationEnvironment(config_storage_folder, source=Path(CONF.codeFolder))
+    config_storage.copy_file(Path(configFile), "leave_config.yaml")
+    config_storage.copy_file(Path(CONF.wireLiftingPath), "final_wire_lifting.json")
+
     common_env.copy_actual_code()
     common_env.add_prod_template()
 

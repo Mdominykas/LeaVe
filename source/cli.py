@@ -15,14 +15,14 @@ from datetime import datetime
 from config import CONF
 from preprocessing import preprocessing
 from verification import verify, verify_invariants
-from counterexample_checking import runCounterexample
+from counterexample_checking import VCDAnalyzer, runCounterexample
 from invariant import doesContainAllObservations, initInvariant
 from invariant import refineInvariant
 from verification_environment import VerificationEnvironment
 
 
 @typechecked
-def microEquivCheck(base_ver_env: VerificationEnvironment, ind_ver_env: VerificationEnvironment, invariant: ObservationList, target_observations: ObservationList, delayed_check_str: str):
+def microEquivCheck(base_ver_env: VerificationEnvironment, ind_ver_env: VerificationEnvironment, invariant: ObservationList, target_observations: ObservationList, delayed_check_str: str, vcd_analyzer: VCDAnalyzer):
     counter = 1
     timers = [datetime.now()]
     for (case_name, specific_env) in [("base", base_ver_env), ("inductive", ind_ver_env)]:
@@ -33,11 +33,11 @@ def microEquivCheck(base_ver_env: VerificationEnvironment, ind_ver_env: Verifica
             print(f"Checking the {case_name} case")
             logfile("\nChecking the micro-equivalence relation...\n")
             logfile(f"\nChecking the {case_name} case...\n")
-            verifStatus, cex, inv = verify(specific_env, invariant, case_name, delayed_check_str)
+            verifStatus, cex, inv = verify(specific_env, invariant, case_name, delayed_check_str, vcd_analyzer)
             print(verifStatus)
 
             if verifStatus == "FAIL":
-                diffInvList = runCounterexample(specific_env, cex, inv, target_observations.get_combined_name(), "trg")
+                diffInvList = runCounterexample(specific_env, cex, inv, target_observations.get_combined_name(), "trg", vcd_analyzer)
                 logfile(f"  The {case_name} step is not satisfied!\n" + "\tthe difference set of invariant is:\n------\n"+ "\n".join(diffInvList)+"\n------\n")
                 print(f"The {case_name} case is not satisfied!")
                 if diffInvList == []:
@@ -62,7 +62,7 @@ def microEquivCheck(base_ver_env: VerificationEnvironment, ind_ver_env: Verifica
     return not invariant.is_empty(), invariant
 
 @typechecked
-def check_inductive_invariants(base_ver_env: VerificationEnvironment, ind_ver_env: VerificationEnvironment, inductive_state_invariant: ObservationList, delayed_check_str: str) -> List[str]:
+def check_inductive_invariants(base_ver_env: VerificationEnvironment, ind_ver_env: VerificationEnvironment, inductive_state_invariant: ObservationList, delayed_check_str: str, vcd_analyzer: VCDAnalyzer) -> List[str]:
     suffix = "provable_inv"
     dropped_invariants = []
     counter = 1
@@ -71,9 +71,9 @@ def check_inductive_invariants(base_ver_env: VerificationEnvironment, ind_ver_en
         print(f"starting {case_name} case")
         while not inductive_state_invariant.is_empty():
             counter += 1
-            verifStatus, cex, inv = verify_invariants(specific_env, inductive_state_invariant, case_name, delayed_check_str, suffix)
+            verifStatus, cex, inv = verify_invariants(specific_env, inductive_state_invariant, case_name, delayed_check_str, suffix, vcd_analyzer)
             if verifStatus == "FAIL":
-                diffInvList = runCounterexample(specific_env, cex, inv, inv.get_combined_name(), suffix)
+                diffInvList = runCounterexample(specific_env, cex, inv, inv.get_combined_name(), suffix, vcd_analyzer)
                 logfile(f"  The {case_name} step is not satisfied!\n" + "\tthe difference set of invariant is:\n------\n"+ "\n".join(diffInvList)+"\n------\n")
                 dropped_invariants += diffInvList
                 if diffInvList == []:
@@ -194,12 +194,14 @@ def main():
     ind_folder = Path(CONF.outFolder + "/" + ind_name).resolve()
     ind_ver_env = VerificationEnvironment(ind_folder, source=common_env.target_path())
 
+    vcd_analyzer = VCDAnalyzer(Path(CONF.outFolder) / "vcd")
+
 
     preprocessing(common_env, base_ver_env, ind_ver_env, toexpandArray, src_observations, invariant, state_assumptions, inductive_state_invariants, auxVars, delayed_check_str, usePredictor)
     time2 = datetime.now() 
 
     if options.validateInductiveStateInvariants:
-        dropped_invariants = check_inductive_invariants(base_ver_env, ind_ver_env, inductive_state_invariants, delayed_check_str)
+        dropped_invariants = check_inductive_invariants(base_ver_env, ind_ver_env, inductive_state_invariants, delayed_check_str, vcd_analyzer)
         if dropped_invariants:
             print("Verification dropped these invariants: ", dropped_invariants)
             # TODO: change this somehow
@@ -208,7 +210,7 @@ def main():
             logfile("\n\tThe CPU is SECURE under the attack w.r.t the contract!!")
     else:
         logtimefile("\n\n2. Start the verification...")
-        State, invariant = microEquivCheck(base_ver_env, ind_ver_env, invariant, trg_observations, delayed_check_str)
+        State, invariant = microEquivCheck(base_ver_env, ind_ver_env, invariant, trg_observations, delayed_check_str, vcd_analyzer)
         if State:    
             logfile("\n\n3. Check the satisfaction based on learned strongest attacker.\n")
             if doesContainAllObservations(invariant, trg_observations):

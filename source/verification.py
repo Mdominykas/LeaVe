@@ -15,6 +15,7 @@ from typing import List
 
 from auxilary_variables import AuxVarDict
 from config import CONF
+from counterexample_checking import VCDAnalyzer
 from observations import InitialStateConstraintList, Observation, ObservationList, ObservationPrediction, PreparedObservation, PreparedObservationAtom, PreparedObservationList, collectVars, initObservations, init_initial_state_vars
 from verification_environment import VerificationEnvironment
 from yosys_cmd_manager import YosysCommandManager
@@ -645,6 +646,8 @@ def precomputing(srcObservations: ObservationList, trgObservations: ObservationL
     yosys_cmd_manager.export_to_verilog(base_output_file_path)
     base_script_file_path = "{}/yosys-verification_base.script".format(base_ver_env.target_str())
     yosys_cmd_manager.run_from_script(base_script_file_path)
+    base_ver_env.un_add_code_files(CONF.moduleFile)
+
             
     log(f"Generate the product circuit for inductive step")
     ind_ver_env.copy_actual_code()
@@ -662,12 +665,13 @@ def precomputing(srcObservations: ObservationList, trgObservations: ObservationL
     yosys_cmd_manager.export_to_verilog(inductive_output_file_path)
     inductive_script_file_path = "{}/yosys-verification_inductive.script".format(ind_ver_env.target_str())
     yosys_cmd_manager.run_from_script(inductive_script_file_path)
+    ind_ver_env.un_add_code_files(CONF.moduleFile)
 
     time4 = datetime.now()
     logtimefile("\n\t\tTime for generating flattened product circuits: "+ str((time4- time3).seconds))
 
 @typechecked
-def verify(specific_env: VerificationEnvironment, trgObservations: ObservationList, case_name: str, filtertype: str) -> tuple[str, str|None, PreparedObservationList]:
+def verify(specific_env: VerificationEnvironment, trgObservations: ObservationList, case_name: str, filtertype: str, vcd_analyzer: VCDAnalyzer) -> tuple[str, str|None, PreparedObservationList]:
     print("PRADEDU VERIFICATION")
 
     # 1. replace the right trg_equiv in the prod.
@@ -729,7 +733,7 @@ def verify(specific_env: VerificationEnvironment, trgObservations: ObservationLi
         
         cmd += ["--dump-vlogtb" , "{}/{}_tb.v".format(specific_env.target_str(), targetName)] 
         cmd += ["--dump-smtc", "{}/{}_smtc".format(specific_env.target_str(), targetName)]
-        cmd += ["--dump-vcd", "{}/{}_trace_{}.vcd".format(specific_env.target_str(), targetName, uuid.uuid4())]
+        cmd += ["--dump-vcd", str(vcd_analyzer.give_file_name())]
         cmd += ["--noinit"]
         cmd += ["--noincr"]
         cmd += ["{}/{}.smt".format(specific_env.target_str(), targetName)]
@@ -754,7 +758,7 @@ def verify(specific_env: VerificationEnvironment, trgObservations: ObservationLi
 
 @typechecked
 def verify_invariants(specific_env: VerificationEnvironment, inductive_state_invariant: ObservationList, case_name: str, filtertype: str, 
-suffix) -> tuple[str, str|None, PreparedObservationList]:
+suffix, vcd_analyzer: VCDAnalyzer) -> tuple[str, str|None, PreparedObservationList]:
     print("PRADEDU VERIFICATION")
 
     # 1. replace the right trg_equiv in the prod.
@@ -820,13 +824,13 @@ suffix) -> tuple[str, str|None, PreparedObservationList]:
         
         cmd += ["--dump-vlogtb" , "{}/{}_tb.v".format(specific_env.target_str(), targetName)] 
         cmd += ["--dump-smtc", "{}/{}_smtc".format(specific_env.target_str(), targetName)]
-        cmd += ["--dump-vcd", "{}/{}_trace.vcd".format(specific_env.target_str(), targetName)]
+        cmd += ["--dump-vcd", str(vcd_analyzer.give_file_name())]
         cmd += ["--noincr"]
         cmd += ["--noinit"]
         cmd += ["{}/{}.smt".format(specific_env.target_str(), targetName)]
         output = run_process(cmd, CONF.verbose_verification)
         time5 = datetime.now()
-        logtimefile("\n\t\tTime for BMC: "+ str((time5- time4).seconds))
+        logtimefile("\n\t\tTime for BMC: "+ str((time5 - time4).seconds))
 
         if "Status: FAILED" in output:
             tb_file = "{}/{}_tb.v".format(specific_env.target_str(), targetName)

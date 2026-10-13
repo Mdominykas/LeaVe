@@ -1,5 +1,7 @@
 import os
 from pathlib import Path
+from typing import List
+from vcdvcd import VCDVCD
 
 from typeguard import typechecked
 from config import CONF
@@ -8,6 +10,51 @@ from datetime import datetime
 from observations import PreparedObservationList
 from util import *
 from verification_environment import VerificationEnvironment
+
+class VCDAnalyzer:
+    @typechecked
+    def __init__(self, folder_path: Path):
+        self.folder_path = folder_path
+        folder_path.mkdir(parents=True, exist_ok=True)
+
+        self.trace_number = 0
+
+    @typechecked
+    def last_file_name(self) -> Path:
+        return self.folder_path / "trace_{}.vcd".format(self.trace_number)
+
+    @typechecked
+    def give_file_name(self) -> Path:
+        self.trace_number += 1
+        return self.last_file_name()
+    
+    @typechecked
+    def vcd_name(self, wire: str) -> str:
+        # yosys-smtbmc drops the leading backslash and writes [7] as <7>,
+        # e.g. \core.reg_trg -> prod.core.reg_trg, \IACK_reg[7]_trg -> prod.IACK_reg<7>_trg
+        top = CONF.prodCircuitTemplate.replace(".v", "")
+        return top + "." + wire.lstrip("\\").replace("[", "<").replace("]", ">")
+
+    
+    @typechecked
+    def analyze_last_file(self, trg_observations: PreparedObservationList) -> List[str]:
+        ids = list(trg_observations.observation_ids)
+        obs_wires = {id_: self.vcd_name(id_ + "_trg") for id_ in ids}
+        equiv = self.vcd_name("trg_equiv")
+
+        vcd = VCDVCD(str(self.last_file_name()), signals=[equiv, *obs_wires.values()])
+        missing = [w for w in [equiv, *obs_wires.values()] if w not in vcd.signals]
+        assert not missing, f"Not found in {self.last_file_name()}: {missing}"
+
+        fail_time = next((t for t, v in vcd[equiv].tv if v != "1"), None)
+        if fail_time is None:
+            return []
+
+        diff = [id_ for id_ in ids if vcd[obs_wires[id_]][fail_time] != "1"]
+        print(f"trg_equiv fails at step {fail_time // 10}, differing: {diff}")
+        return diff
+
+
 
 
 ## Variables (TODO MG: Move to config)
@@ -34,7 +81,7 @@ def compileWithIVerilog(file,outFolder):
     return "{}/{}".format(outFolder, CONF.prodCircuitTemplate.replace(".v",""))
 
 @typechecked
-def runTestbed(testbed, prod_type: str, wire_to_ignore: str) -> list[str]:
+def runTestbed(testbed, prod_type: str, wire_to_ignore: str, vcd_analyzer: VCDAnalyzer, trg_observations: PreparedObservationList) -> list[str]:
     assert prod_type == "trg" or prod_type == "provable_inv", "prodType is always trg or inductive_state_invariant"
 
     cmd = [CONF.vvpPath, testbed]
@@ -63,7 +110,10 @@ def runTestbed(testbed, prod_type: str, wire_to_ignore: str) -> list[str]:
             else:
                 diffcycle = True
 
-    return diffInvList
+    vcd_diff_list = vcd_analyzer.analyze_last_file(trg_observations)
+    # assert diffInvList == vcd_diff_list, "Observations from vcd analyzer ({}) should match the ones from verilog ({})".format(vcd_diff_list, diffInvList)
+
+    return vcd_diff_list
 
 
 
@@ -182,7 +232,7 @@ def fixClock(file):
         
 
 @typechecked
-def runCounterexample(specific_env: VerificationEnvironment, counterexample: str, trg_observations: PreparedObservationList, wire_name: str, suffix: str) -> list[str]:
+def runCounterexample(specific_env: VerificationEnvironment, counterexample: str, trg_observations: PreparedObservationList, wire_name: str, suffix: str, vcd_analyzer: VCDAnalyzer) -> list[str]:
     log("START - RUN CTX")
     time1 = datetime.now()
 
@@ -208,7 +258,7 @@ def runCounterexample(specific_env: VerificationEnvironment, counterexample: str
     log(f"Compile counterexample testbed")
     tb = compileWithIVerilog(counterexample, specific_env.target_str())
     log(f"Run counterexample testbed")
-    diffInvList = runTestbed(tb, suffix, wire_name)
+    diffInvList = runTestbed(tb, suffix, wire_name, vcd_analyzer, trg_observations)
 
     time2 = datetime.now()
     logtimefile("\n\t\tTime for analyzing counterexample: "+ str((time2 - time1).seconds))

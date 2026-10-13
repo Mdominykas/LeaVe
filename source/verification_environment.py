@@ -16,9 +16,11 @@ class VerificationEnvironment:
         assert path.is_dir(), "A path to verification environment must a directory"
         self.verification_folder = path
         self.source = source
+        self.added_files = []
 
 
     # !!!! DOESN'T COPY THE PROD FILE
+    @typechecked
     def copy_actual_code(self, avoid_template: bool = False):
         found_template = False
         print("source is: ", self.source)
@@ -29,10 +31,17 @@ class VerificationEnvironment:
                     found_template = True
                     continue
                 shutil.copy2(item, self.verification_folder / item.name)
+                self.added_files.append(item.name)
         assert found_template or not avoid_template, "One should not copy the prod template"
 
     @typechecked
-    def add_prod_template(self, prod_location: Path|None =None):
+    def un_add_code_files(self, file_to_ignore: str):
+        for file in self.added_files:
+            if file != file_to_ignore:
+                self.remove_file(file)
+
+    @typechecked
+    def add_prod_template(self, prod_location: Path|None = None):
         if prod_location is None:
             prod_location = self.source / CONF.prodCircuitTemplate
         shutil.copy2(prod_location, self.verification_folder / CONF.prodCircuitTemplate)

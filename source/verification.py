@@ -671,6 +671,7 @@ def precomputing(srcObservations: ObservationList, trgObservations: ObservationL
     time4 = datetime.now()
     logtimefile("\n\t\tTime for generating flattened product circuits: "+ str((time4- time3).seconds))
 
+
 @typechecked
 def verify(specific_env: VerificationEnvironment, trgObservations: ObservationList, case_name: str, filtertype: str, vcd_analyzer: VCDAnalyzer) -> tuple[str, str|None, PreparedObservationList]:
     print("PRADEDU VERIFICATION")

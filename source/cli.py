@@ -37,7 +37,7 @@ def microEquivCheck(base_ver_env: VerificationEnvironment, ind_ver_env: Verifica
             print(verifStatus)
 
             if verifStatus == "FAIL":
-                diffInvList = runCounterexample(specific_env, cex, inv, target_observations.get_combined_name(), "trg", vcd_analyzer)
+                diffInvList = run_counterexample(vcd_analyzer, inv)
                 logfile(f"  The {case_name} step is not satisfied!\n" + "\tthe difference set of invariant is:\n------\n"+ "\n".join(diffInvList)+"\n------\n")
                 print(f"The {case_name} case is not satisfied!")
                 if diffInvList == []:

@@ -464,6 +464,7 @@ def constructProductCircuit(common_env: VerificationEnvironment, base_ver_env: V
     if STATE_INVARIANT_PLACEHOLDER in productCircuit_inductive:
         productCircuit_inductive = productCircuit_inductive.replace(STATE_INVARIANT_PLACEHOLDER, state_inv_ctr.to_string())
 
+    
     verification_constr = VerilogConstructor()
     verification_constr.add_comment("\t// contract-equivalence")
     if use_predictor:

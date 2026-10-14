@@ -13,7 +13,6 @@ from datetime import datetime
 
 from observations import ObservationList, getIndexMetaVariables, replaceIndexMetaVariable
 from util import *
-from counterexample_checking import renameDotNotation
 from verification import precomputing
 from verification_environment import VerificationEnvironment
 
@@ -129,8 +128,6 @@ def preprocessing(common_env: VerificationEnvironment, base_ver_env: Verificatio
     time1 = datetime.now()
     
     assert CONF.prodCircuitTemplate == "prod.v", "I think this is the only possible template"
-    renameDotNotation(base_ver_env.target_path() / "prod_renamed.temp", testbed=False)
-    renameDotNotation(ind_ver_env.target_path() / "prod_renamed.temp", testbed=False)
 
     assert CONF.moduleFile == CONF.module + ".v", "I think this holds, but idk what is written in configs"
     base_ver_env.copy_file(common_env.target_path() / CONF.moduleFile, CONF.moduleFile)

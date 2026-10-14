@@ -15,7 +15,7 @@ from datetime import datetime
 from config import CONF
 from preprocessing import preprocessing
 from verification import verify, verify_invariants
-from counterexample_checking import VCDAnalyzer, runCounterexample
+from counterexample_checking import VCDAnalyzer, run_counterexample
 from invariant import doesContainAllObservations, initInvariant
 from invariant import refineInvariant
 from verification_environment import VerificationEnvironment
@@ -73,7 +73,7 @@ def check_inductive_invariants(base_ver_env: VerificationEnvironment, ind_ver_en
             counter += 1
             verifStatus, cex, inv = verify_invariants(specific_env, inductive_state_invariant, case_name, delayed_check_str, suffix, vcd_analyzer)
             if verifStatus == "FAIL":
-                diffInvList = runCounterexample(specific_env, cex, inv, inv.get_combined_name(), suffix, vcd_analyzer)
+                diffInvList = run_counterexample(vcd_analyzer, inv)
                 logfile(f"  The {case_name} step is not satisfied!\n" + "\tthe difference set of invariant is:\n------\n"+ "\n".join(diffInvList)+"\n------\n")
                 dropped_invariants += diffInvList
                 if diffInvList == []:

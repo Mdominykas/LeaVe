@@ -36,8 +36,8 @@ struct AddModulePass : public Pass {
                 
                 std::string intermedia_signal_name = RTLIL::escape_id(RTLIL::id2cstr((cell.second->name)) + std::string("_intermedia_signal"));
                 std::string stuttering_cell_name = RTLIL::escape_id(RTLIL::id2cstr((cell.second->name)) + std::string("_stuttering_cell"));
-                cout << intermedia_signal_name << "\n";
-                cout << stuttering_cell_name << "\n";
+                // cout << intermedia_signal_name << "\n";
+                // cout << stuttering_cell_name << "\n";
                 // intermedia_signal_wire
                 RTLIL::Wire *intermedia_signal = main_module->addWire(intermedia_signal_name, width);
                 

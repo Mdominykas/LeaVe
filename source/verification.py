@@ -251,16 +251,6 @@ def selfCompositionCycleDelayedCheck(src_obs_list: PreparedObservationList, trg_
     verificationConditions += f"\t\t end\n"
     verificationConditions += f"\t end\n"
 
-    verificationConditions += f"\t reg {delayed_trg};\n"
-    verificationConditions += "\t " + VBuild.declare_wire(delayed_trg_now, VBuild.on_cycle(1, trg)) + "\n"
-    verificationConditions += f"\t reg delayed_base_equiv;\n"
-    verificationConditions += f"\t always @ (posedge {clock}) begin\n"
-    verificationConditions += f"\t\t {delayed_trg} = {delayed_trg} && ({VBuild.on_cycle(1, trg)});\n"
-    verificationConditions += f"\t\t delayed_base_equiv <= delayed_base_equiv && {VBuild.on_init(trg)};\n"
-    verificationConditions += f"\t end\n"
-
-    verificationConditions += VBuild.assume_property(src_obs_list.get_combined_name()) + "\n"
-    verificationConditions += VBuild.assume_property(state_assumption_vars.get_combined_name()) + "\n"
 
     # TODO: I can add k-induction here
     if CONF.do_inductive_invariant_verification:
@@ -271,6 +261,17 @@ def selfCompositionCycleDelayedCheck(src_obs_list: PreparedObservationList, trg_
             verificationConditions += VBuild.assume_property(VBuild.on_cycle(0, initial_state_constraints.get_combined_name())) + "\n"
             verificationConditions += VBuild.assert_property(VBuild.on_cycle(0, inductive_state_invariants_vars.get_combined_name())) + "\n"
     else:
+        verificationConditions += f"\t reg {delayed_trg};\n"
+        verificationConditions += "\t " + VBuild.declare_wire(delayed_trg_now, VBuild.on_cycle(1, trg)) + "\n"
+        verificationConditions += f"\t reg delayed_base_equiv;\n"
+        verificationConditions += f"\t always @ (posedge {clock}) begin\n"
+        verificationConditions += f"\t\t {delayed_trg} = {delayed_trg} && ({VBuild.on_cycle(1, trg)});\n"
+        verificationConditions += f"\t\t delayed_base_equiv <= delayed_base_equiv && {VBuild.on_init(trg)};\n"
+        verificationConditions += f"\t end\n"
+
+        verificationConditions += VBuild.assume_property(src_obs_list.get_combined_name()) + "\n"
+        verificationConditions += VBuild.assume_property(state_assumption_vars.get_combined_name()) + "\n"
+
         if cstrType == "base":
             verificationConditions += VBuild.assume_property(VBuild.on_cycle(0, initial_state_constraints.get_combined_name())) + "\n"
 
@@ -380,8 +381,9 @@ def constructProductCircuit(common_env: VerificationEnvironment, base_ver_env: V
     if WIRE_DECLARATION_PLACEHOLDER in productCircuit_base:
         wireDeclaration = ""
         wireDeclaration += "\t// wire declaration\n"
-        wireDeclaration += selfCompositionVariableDecl(trg_obs_list,  "trg")
-        wireDeclaration += selfCompositionVariableDecl(src_obs_list,  "src")
+        if not CONF.do_inductive_invariant_verification:
+            wireDeclaration += selfCompositionVariableDecl(trg_obs_list,  "trg")
+            wireDeclaration += selfCompositionVariableDecl(src_obs_list,  "src")
         wireDeclaration += selfCompositionVariableDecl(initial_state_constraints,  "state") 
         if len(state_assumption_vars.get_observation_list()) > 0:
             wireDeclaration += selfCompositionVariableDecl(state_assumption_vars,  "inv")
@@ -426,6 +428,8 @@ def constructProductCircuit(common_env: VerificationEnvironment, base_ver_env: V
         moduleDeclarations = "\t// self-composed modules\n"
 
         for (name, collection) in [("trg", trg_obs_list), ("src", src_obs_list), ("state", initial_state_constraints), ("inv", state_assumption_vars), ("provable_inv", inductive_state_invariants_vars)]:
+            if CONF.do_inductive_invariant_verification and (name == "trg" or name == "src"):
+                continue
             for b in collection.get_all_blocks():
                 left = "{}_{}_left".format(b.var, name)
                 right = "{}_{}_right".format(b.var, name)
@@ -466,18 +470,19 @@ def constructProductCircuit(common_env: VerificationEnvironment, base_ver_env: V
 
     
     verification_constr = VerilogConstructor()
-    verification_constr.add_comment("\t// contract-equivalence")
-    if use_predictor:
-        predictions = src_obs_list.parse_predictions()
-        selfCompositionObservationPredictionEquivalence(verification_constr, src_obs_list.get_combined_name(), predictions, "src")
-    else:
-        selfCompositionObservationEquivalence(verification_constr, src_obs_list.get_combined_name(), src_obs_list, "src")
-    
+    if not CONF.do_inductive_invariant_verification:
+        verification_constr.add_comment("\t// contract-equivalence")
+        if use_predictor:
+            predictions = src_obs_list.parse_predictions()
+            selfCompositionObservationPredictionEquivalence(verification_constr, src_obs_list.get_combined_name(), predictions, "src")
+        else:
+            selfCompositionObservationEquivalence(verification_constr, src_obs_list.get_combined_name(), src_obs_list, "src")
+        
 
-    verification_constr.add_comment("\t// verification assertion")
-    selfCompositionObservationEquivalence(verification_constr, trg_obs_list.get_combined_name(), trg_obs_list, "trg")
+        verification_constr.add_comment("\t// verification assertion")
+        selfCompositionObservationEquivalence(verification_constr, trg_obs_list.get_combined_name(), trg_obs_list, "trg")
 
-    verification_constr.add_comment("\t// contract-equivalence")
+        verification_constr.add_comment("\t// contract-equivalence")
 
     
     if VERIFICATION_CONDITIONS_PLACEHOLDER in productCircuit_base:
@@ -595,13 +600,16 @@ def precomputing(srcObservations: ObservationList, trgObservations: ObservationL
     time2 = datetime.now()
     logtimefile("\n\t\tTime for flatten the source code: "+ str((time2- time1).seconds))
 
-    ## 2. inline target observations
-    log("Inline target observations")
-    trg_obs_var = inlineObservations(yosys_cmd_manager, common_env.target_str(), auxVars, trgObservations, module, "obs_trg")
+    trg_obs_var = PreparedObservationList(combined_name=trgObservations.combined_name)
+    srcObsVar = PreparedObservationList(combined_name=srcObservations.combined_name)
+    if not CONF.do_inductive_invariant_verification:
+        ## 2. inline target observations
+        log("Inline target observations")
+        trg_obs_var = inlineObservations(yosys_cmd_manager, common_env.target_str(), auxVars, trgObservations, module, "obs_trg")
 
-    ## 3. inline source observations
-    log("Inline src observations")
-    srcObsVar = inlineObservations(yosys_cmd_manager, common_env.target_str(), auxVars, srcObservations, module, "obs_src")
+        ## 3. inline source observations
+        log("Inline src observations")
+        srcObsVar = inlineObservations(yosys_cmd_manager, common_env.target_str(), auxVars, srcObservations, module, "obs_src")
 
     ## 4. inline state variables
     log("Inline state variables")
@@ -674,29 +682,35 @@ def precomputing(srcObservations: ObservationList, trgObservations: ObservationL
 
 @typechecked
 def verify(specific_env: VerificationEnvironment, trgObservations: ObservationList, case_name: str, filtertype: str, vcd_analyzer: VCDAnalyzer) -> tuple[str, str|None, PreparedObservationList]:
-    print("PRADEDU VERIFICATION")
-
-    # 1. replace the right trg_equiv in the prod.
+    if CONF.do_inductive_invariant_verification:
+        observation_prefix = "inductive_state_invariant"
+        suffix = "provable_inv"
+        wire_name = "inductive_state_invariant"
+    else:
+        observation_prefix = "obs_trg"
+        suffix = "trg"
+        wire_name = "trg_equiv"
+    print("Starting Verification")
  
-    trg_obs = initObservations(trgObservations, AuxVarDict(), "obs_trg")
+    obs_list = initObservations(trgObservations, AuxVarDict(), observation_prefix)
  
-    new_trg_equiv = ""
-    if len(trg_obs.observations) > 0:
-        new_trg_equiv += "\twire trg_equiv = {} ;\n".format( " && ".join( ["{}_trg ".format(obs.id) for obs in trg_obs.get_observation_list()] ))
+    new_goal = ""
+    if len(obs_list.observations) > 0:
+        new_goal += "\twire {} = {} ;\n".format(wire_name, " && ".join( ["{}_{} ".format(obs.id, suffix) for obs in obs_list.get_observation_list()] ))
 
-    replaced_target_equiv = False
+    replaced_goal = False
     prod = ""
-    TRG_EQUIV_DECL = re.compile(r"^\s*wire\s+trg_equiv\s*=")
+    GOAL_DECL = re.compile(rf"^\s*wire\s+{re.escape(wire_name)}\s*=")
     with open(specific_env.target_path() / "prod_verification.temp", "r") as f:
         lines = f.readlines()   
         for line in lines:
-            if TRG_EQUIV_DECL.match(line):
-                assert not replaced_target_equiv, "Target equivalence should only be replaced once"
-                prod += new_trg_equiv
-                replaced_target_equiv = True
+            if GOAL_DECL.match(line):
+                assert not replaced_goal, "Goal of the verification should only be replaced once"
+                prod += new_goal
+                replaced_goal = True
             else: 
                 prod += line
-    assert replaced_target_equiv, "Check that replace happened as expected"
+    assert replaced_goal, "Check that replace happened as expected"
     specific_env.add_file(CONF.prodCircuitTemplate, prod)
 
 
@@ -731,7 +745,15 @@ def verify(specific_env: VerificationEnvironment, trgObservations: ObservationLi
         assert filtertype == "delayedcheck", "The only filtertype that is implemented"
         # both checks are delayed until after the lookahead
         # This ensures that assertions are only checked when the CYCLE_NUM == CONF.lookAhead
-        cmd += ["-t", "{}:{}".format(int(CONF.lookAhead), int(CONF.lookAhead) + 1)]
+        if CONF.do_inductive_invariant_verification:
+            if case_name == "base":
+                cmd += ["-t", "1"]
+            elif case_name == "inductive":
+                cmd += ["-t", "1:2"]
+            else:
+                assert False, "case must be base or inductive"
+        else:
+            cmd += ["-t", "{}:{}".format(int(CONF.lookAhead), int(CONF.lookAhead) + 1)]
         
         cmd += ["--dump-vlogtb" , "{}/{}_tb.v".format(specific_env.target_str(), targetName)] 
         cmd += ["--dump-smtc", "{}/{}_smtc".format(specific_env.target_str(), targetName)]
@@ -746,103 +768,13 @@ def verify(specific_env: VerificationEnvironment, trgObservations: ObservationLi
         if "Status: FAILED" in output:
             tb_file = "{}/{}_tb.v".format(specific_env.target_str(), targetName)
             log("Verification FAILED")
+            vcd_analyzer.split_left_right()
             export_counter_example(tb_file)
-            return "FAIL",tb_file, trg_obs
+            return "FAIL", tb_file, obs_list
 
         elif "Status: PASSED" in output:
             log("Verification PASSED")
-            return "PASS", None, trg_obs
-        else:
-            print("Unknown verification result")
-            exit(1)
-
-
-
-@typechecked
-def verify_invariants(specific_env: VerificationEnvironment, inductive_state_invariant: ObservationList, case_name: str, filtertype: str, 
-suffix, vcd_analyzer: VCDAnalyzer) -> tuple[str, str|None, PreparedObservationList]:
-    print("PRADEDU VERIFICATION")
-
-    # 1. replace the right trg_equiv in the prod.
- 
-    ind_state_inv_obs = initObservations(inductive_state_invariant, AuxVarDict(), "inductive_state_invariant")
- 
-    new_inductive_state_invariant = ""
-    if len(ind_state_inv_obs.observations) > 0:
-        new_inductive_state_invariant += "\twire inductive_state_invariant = {} ;\n".format( " && ".join( ["{}_{} ".format(obs.id, suffix) for obs in ind_state_inv_obs.get_observation_list()] ))
-
-    replaced_inductive_state_invariant = False
-    prod = ""
-    IND_STATE_INV_DECL = re.compile(r"^\s*wire\s+inductive_state_invariant\s*=")
-    with open(specific_env.target_path() / "prod_verification.temp", "r") as f:
-        lines = f.readlines()   
-        for line in lines:
-            if IND_STATE_INV_DECL.match(line):
-                assert not replaced_inductive_state_invariant, "Target equivalence should only be replaced once"
-                prod += new_inductive_state_invariant
-                replaced_inductive_state_invariant = True
-            else: 
-                prod += line
-    assert replaced_inductive_state_invariant, "Check that replace happened as expected"
-    specific_env.add_file(CONF.prodCircuitTemplate, prod)
-
-
-    # 2. run the BMC to get a ctx or pass
-    log("Verification")
-    verifMode="yosys-smt"
-    targetName = CONF.prodCircuitTemplate.replace(".v", "")
-    assert verifMode == "yosys-smt", "The only supported mode"
-    if verifMode == "yosys-smt":
-        log(f"Verification with {verifMode}")
-        log("SMTLib encoding")
-        ## Create smtlib encoding with yosys
-        time3 = datetime.now()
-        yosys_cmd_manager = YosysCommandManager()
-        yosys_cmd_manager.add_read_verilog_single_file("{}/{}".format(specific_env.target_str(), CONF.prodCircuitTemplate))
-        yosys_cmd_manager.add_read_verilog_single_file("{}/{}".format(specific_env.target_str(), CONF.moduleFile))
-        yosys_cmd_manager.add_hierarchy_with_top(targetName)
-        yosys_cmd_manager.add_proc_no_rom()
-        yosys_cmd_manager.add_flattening()
-        yosys_cmd_manager.add_opt()
-        
-        for yosys_pass in CONF.yosysSMTPreprocessing:
-            yosys_cmd_manager.add_string_pass(yosys_pass)
-        yosys_cmd_manager.export_to_smt2("{}/{}.smt".format(specific_env.target_str(), targetName), with_wires=True)
-        script_path = "{}/yosys-verification.script".format(specific_env.target_str())
-        yosys_cmd_manager.run_from_script(script_path)
- 
-        time4 = datetime.now()
-        logtimefile("\n\t\tTime for generating prod.smt: "+ str((time4- time3).seconds))
-        log("Bounded model checking")
-        cmd = [CONF.yosysBMCPath, "-s", CONF.yosysBMCSolver]
-        assert filtertype == "delayedcheck", "The only filtertype that is implemented"
-
-        if case_name == "base":
-            cmd += ["-t", "1"]
-        elif case_name == "inductive":
-            cmd += ["-t", "1:2"]
-        else:
-            assert False, "case must be base or inductive"
-        
-        cmd += ["--dump-vlogtb" , "{}/{}_tb.v".format(specific_env.target_str(), targetName)] 
-        cmd += ["--dump-smtc", "{}/{}_smtc".format(specific_env.target_str(), targetName)]
-        cmd += ["--dump-vcd", str(vcd_analyzer.give_file_name())]
-        cmd += ["--noincr"]
-        cmd += ["--noinit"]
-        cmd += ["{}/{}.smt".format(specific_env.target_str(), targetName)]
-        output = run_process(cmd, CONF.verbose_verification)
-        time5 = datetime.now()
-        logtimefile("\n\t\tTime for BMC: "+ str((time5 - time4).seconds))
-
-        if "Status: FAILED" in output:
-            tb_file = "{}/{}_tb.v".format(specific_env.target_str(), targetName)
-            log("Verification FAILED")
-            export_counter_example(tb_file)
-            return "FAIL",tb_file, ind_state_inv_obs
-
-        elif "Status: PASSED" in output:
-            log("Verification PASSED")
-            return "PASS", None, ind_state_inv_obs
+            return "PASS", None, obs_list
         else:
             print("Unknown verification result")
             exit(1)

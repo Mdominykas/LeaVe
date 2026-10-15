@@ -1,0 +1,5 @@
+time python3 source/cli.py config/RE_pred_3.yaml
+
+time python3 source/cli.py config/RE.yaml
+
+time python3 source/cli.py config/RE_handcrafted_pred.yaml

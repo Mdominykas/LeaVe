@@ -1,0 +1,1 @@
+iverilog -tnull -Wall pipeline_mul_fast.v

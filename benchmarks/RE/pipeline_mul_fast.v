@@ -65,7 +65,7 @@ Execute stage: compute results.
     // stores temporary result from multiplication
     reg [31:0] mul_res;
     reg [31:0] mul_rd;
-    reg [23:0] mul_imm;
+    reg [31:0] mul_imm;
 
     reg [31:0] rd_old;
     
@@ -98,14 +98,14 @@ Execute stage: compute results.
             // do one round 
                 wb_we <= 1;
                 mult <= 0;
-                wb_res <= ( mul_rd & {32 {mul_imm[0]} });
+                wb_res <= mul_res + ( mul_rd & {32 {mul_imm[0]} });
             end
-            else if (mul_rd == 0 || mul_rd == 1)begin
-            // do one round 
-                wb_we <= 1;
-                mult <= 0;
-                wb_res <= mul_res + ( mul_imm & {32 {mul_rd[0]} });
-            end
+//            else if (mul_rd == 0 || mul_rd == 1)begin
+//            // do one round 
+//                wb_we <= 1;
+//                mult <= 0;
+//                wb_res <= mul_res + ( mul_imm & {32 {mul_rd[0]} });
+//            end
             
             else begin
             // do one round 
@@ -122,7 +122,7 @@ Execute stage: compute results.
         else begin
             wb_we <= 1;
             mult <= 0;
-            wb_res <=  register;
+            wb_res <= rd;
         end
     end
 

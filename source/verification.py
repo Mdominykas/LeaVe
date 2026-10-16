@@ -51,6 +51,11 @@ class VBuild:
     
     @staticmethod
     @typechecked
+    def build_impl(wire_a: str, wire_b: str) -> str:
+        return f"(!({wire_a}) || ({wire_b}))"
+
+    @staticmethod
+    @typechecked
     def build_or(wires: List[str]) -> str:
         assert len(wires) > 0, "wires should not be empty"
         return " || ".join(["( {} )".format(wire) for wire in wires])
@@ -60,10 +65,17 @@ class VBuild:
     def build_not(wire: str) -> str:
         return "(! {} )".format(wire)
     
+    # init means initial state for bmc
     @staticmethod
     @typechecked
     def on_init(expr: str) -> str:
-        return f"( ({CONF.selfCompositionInitVariable} != 1) || ( {expr} ) )"
+        return f"( ((CYCLE_NUM != 0) || ( {expr} ) )"
+    
+    # startup means initial state of the processor
+    @staticmethod
+    @typechecked
+    def on_startup(expr: str) -> str:
+        return f"( ({CONF.initRegister} != 1) || ( {expr} ) )"
     
     @staticmethod
     @typechecked
@@ -154,36 +166,53 @@ def selfCompositionObservationEquivalence(constr: VerilogConstructor, wireId: st
 
 @typechecked
 def selfCompositionStateInvariant(wire_id: str, inv_vars: PreparedObservationList, prefix: str, constr: VerilogConstructor):
+    wires = []
     for obs in inv_vars.get_observation_list():
-        selfCompositionInvsConstraint(constr, obs, prefix)
-    if len(inv_vars.get_observation_list()) > 0:
-        wires = ["{}_{}".format(obs.id, prefix) for obs in inv_vars.get_observation_list()]
-        constr.add(VBuild.declare_wire(wire_id, VBuild.build_and(wires)))
+        wire_name = "{}_{}".format(obs.id, prefix)
 
+        left_attrs = []
+        for arg in obs.attrs:
+            wire = "{}_{}_left".format(arg.var, prefix)
+            if arg.init:
+                wire = VBuild.on_startup(wire)
+            left_attrs.append(wire)
+        left_cond = "{}_{}_left".format(obs.cond.var, prefix)
+        left = VBuild.build_impl(left_cond, VBuild.build_and(left_attrs))
+
+        right_attrs = []
+        for arg in obs.attrs:
+            wire = "{}_{}_right".format(arg.var, prefix)
+            if arg.init:
+                wire = VBuild.on_startup(wire)
+            right_attrs.append(wire)
+        right_cond = "{}_{}_right".format(obs.cond.var, prefix)
+        right = VBuild.build_impl(right_cond, VBuild.build_and(right_attrs))
+
+        res = VBuild.build_and([right, left])
+        if obs.init:
+            res = VBuild.on_startup(res)
+       
+        wires.append(wire_name)
+        constr.add(VBuild.declare_wire(wire_name, res))
+
+    constr.add(VBuild.declare_wire(wire_id, VBuild.build_and(wires)))
+
+# TODO: this could be merged with state assumptions
 @typechecked
 def declare_inductive_state_invariant_wire(constr: VerilogConstructor, obs: PreparedObservation, cstrType: str):
     wire_name = "{}_{}".format(obs.id, cstrType)
     # TODO: I am discarding init, cause it's inductive invariant
     # TODO: Note: I am only checking the property on left
     comb = ["{}_{}_left".format(arg.var, cstrType) for arg in obs.attrs]
-    constr.add(VBuild.declare_wire(wire_name, VBuild.build_and(comb)))
+    cond = "{}_{}_left".format(obs.cond.var, cstrType)
+    constr.add(VBuild.declare_wire(wire_name, VBuild.build_impl(cond, VBuild.build_and(comb))))
 
 @typechecked
 def self_composition_inductive_state_invariant(wire_id: str, inductive_inv_vars: PreparedObservationList, prefix: str, constr: VerilogConstructor):
     for obs in inductive_inv_vars.get_observation_list():
         declare_inductive_state_invariant_wire(constr, obs, prefix)
-    if len(inductive_inv_vars.get_observation_list()) > 0:
-        wires = ["{}_{}".format(obs.id, prefix) for obs in inductive_inv_vars.get_observation_list()]
-        constr.add(VBuild.declare_wire(wire_id, VBuild.build_and(wires)))
-
-def selfCompositionAssume(wireId):
-    return f"\tassume property ({wireId});\n"
-
-def selfCompositionOnInit(wireId, init, var):
-    return  f"\twire {wireId} = ({init} {CONF.selfCompositionInequality} 0) || ({var}) ;\n"
-
-def selfCompositionOnCounter(wireId, counter, var1, var2):
-    return  f"\twire {wireId} = ({counter} > 1) || ({var1} && {var2}) ;\n"
+    wires = ["{}_{}".format(obs.id, prefix) for obs in inductive_inv_vars.get_observation_list()]
+    constr.add(VBuild.declare_wire(wire_id, VBuild.build_and(wires)))
 
 @typechecked
 def satisfaction_of_initial_state_constraints(wire_id: str, constraints: InitialStateConstraintList, prefix: str):
@@ -201,15 +230,6 @@ def satisfaction_of_initial_state_constraints(wire_id: str, constraints: Initial
     return VBuild.declare_wire(wire_id, VBuild.build_and(constr_str_list))
 
 @typechecked
-def selfCompositionInvsAttrsConstraint(arg: PreparedObservationAtom, cstrType: str):
-    right = "{}_{}_right".format(arg.var, cstrType)
-    left = "{}_{}_left".format(arg.var, cstrType)
-    res = VBuild.build_and([right, left])
-    if arg.init:
-        res = VBuild.on_init(res)
-    return res
-
-@typechecked
 def self_composition_equiv_constraint(constr: VerilogConstructor, observation: PreparedObservation, cstrType: str):
     wire_name = "{}_{}".format(observation.id, cstrType)
 
@@ -225,13 +245,6 @@ def self_composition_equiv_constraint(constr: VerilogConstructor, observation: P
         expr = "{} && (! {} || ( {} ) )".format(expr, cond_r, attr_eq)
 
     constr.add(VBuild.declare_wire(wire_name, expr))
-
-
-@typechecked
-def selfCompositionInvsConstraint(constr: VerilogConstructor, obs: PreparedObservation, cstrType: str):
-    wire_name = "{}_{}".format(obs.id, cstrType)
-    comb = [selfCompositionInvsAttrsConstraint(arg, cstrType) for arg in obs.attrs]
-    constr.add(VBuild.declare_wire(wire_name, VBuild.build_and(comb)))
 
 def selfCompositionCycleDelayedCheck(src_obs_list: PreparedObservationList, trg_obs_list: PreparedObservationList, initial_state_constraints: InitialStateConstraintList, state_assumption_vars: PreparedObservationList, inductive_state_invariants_vars: PreparedObservationList, cstrType):
     clock = CONF.clockInput
@@ -252,6 +265,7 @@ def selfCompositionCycleDelayedCheck(src_obs_list: PreparedObservationList, trg_
     verificationConditions += f"\t end\n"
 
 
+    verificationConditions += VBuild.assume_property(state_assumption_vars.get_combined_name()) + "\n"
     # TODO: I can add k-induction here
     if CONF.do_inductive_invariant_verification:
         if cstrType == "inductive":
@@ -270,7 +284,6 @@ def selfCompositionCycleDelayedCheck(src_obs_list: PreparedObservationList, trg_
         verificationConditions += f"\t end\n"
 
         verificationConditions += VBuild.assume_property(src_obs_list.get_combined_name()) + "\n"
-        verificationConditions += VBuild.assume_property(state_assumption_vars.get_combined_name()) + "\n"
 
         if cstrType == "base":
             verificationConditions += VBuild.assume_property(VBuild.on_cycle(0, initial_state_constraints.get_combined_name())) + "\n"
@@ -382,11 +395,11 @@ def constructProductCircuit(common_env: VerificationEnvironment, base_ver_env: V
         wireDeclaration = ""
         wireDeclaration += "\t// wire declaration\n"
         if not CONF.do_inductive_invariant_verification:
-            wireDeclaration += selfCompositionVariableDecl(trg_obs_list,  "trg")
-            wireDeclaration += selfCompositionVariableDecl(src_obs_list,  "src")
-        wireDeclaration += selfCompositionVariableDecl(initial_state_constraints,  "state") 
+            wireDeclaration += selfCompositionVariableDecl(trg_obs_list, "trg")
+            wireDeclaration += selfCompositionVariableDecl(src_obs_list, "src")
+        wireDeclaration += selfCompositionVariableDecl(initial_state_constraints, "state") 
         if len(state_assumption_vars.get_observation_list()) > 0:
-            wireDeclaration += selfCompositionVariableDecl(state_assumption_vars,  "inv")
+            wireDeclaration += selfCompositionVariableDecl(state_assumption_vars, "inv")
         if len(inductive_state_invariants_vars.get_observation_list()) > 0:
             wireDeclaration += selfCompositionVariableDecl(inductive_state_invariants_vars,  "provable_inv")
         wireDeclaration += "\n"
@@ -398,14 +411,15 @@ def constructProductCircuit(common_env: VerificationEnvironment, base_ver_env: V
 
     # 2. Init register
     if INIT_REGISTER_PLACEHOLDER in productCircuit_base:
-        init = CONF.selfCompositionInitVariable
-        initRegister = ""
-        initRegister += f"\t // auxiliary register for initial state\n"
-        initRegister += f"\t wire {init} = (CYCLE_NUM == 0);\n"
-        productCircuit_base = productCircuit_base.replace(INIT_REGISTER_PLACEHOLDER, initRegister)
-        productCircuit_inductive = productCircuit_inductive.replace(INIT_REGISTER_PLACEHOLDER, initRegister)
-    else:
         init = CONF.initRegister
+        initDeclaration = ""
+        initDeclaration += f"\t // auxiliary register for initial state\n"
+        initRegisterBase = f"\t wire {init} = (CYCLE_NUM == 0);\n"
+        initRegisterInductive = f"\t wire {init} = 0;\n"
+        productCircuit_base = productCircuit_base.replace(INIT_REGISTER_PLACEHOLDER, initDeclaration + initRegisterBase)
+        productCircuit_inductive = productCircuit_inductive.replace(INIT_REGISTER_PLACEHOLDER, initDeclaration + initRegisterInductive)
+    else:
+        assert False
 
     # 3.  stuttering signal
     if STUTTERING_SIGNAL_PLACEHOLDER in productCircuit_base:
@@ -644,6 +658,7 @@ def precomputing(srcObservations: ObservationList, trgObservations: ObservationL
     base_ver_env.copy_actual_code()
     base_ver_env.add_prod_template(prod_location=base_ver_env.target_path() / "prod_verification.temp")
 
+    # TODO: I think this part is useless
     targetName = CONF.prodCircuitTemplate.replace(".v", "")
     yosys_cmd_manager = YosysCommandManager()
     yosys_cmd_manager.add_read_verilog_whole_folder(base_ver_env.target_str())

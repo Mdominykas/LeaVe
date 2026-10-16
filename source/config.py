@@ -32,7 +32,6 @@ class ConfCls:
     vvpPath: str = ""
 
     # product circuit
-    selfCompositionInitVariable: str = "init"
     selfCompositionEquality: str = "=="
     selfCompositionInequality: str = "!="
 

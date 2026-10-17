@@ -69,7 +69,7 @@ class VBuild:
     @staticmethod
     @typechecked
     def on_init(expr: str) -> str:
-        return f"( ((CYCLE_NUM != 0) || ( {expr} ) )"
+        return f"( (CYCLE_NUM != 0) || ( {expr} ) )"
     
     # startup means initial state of the processor
     @staticmethod

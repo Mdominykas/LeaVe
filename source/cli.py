@@ -23,19 +23,17 @@ from verification_environment import VerificationEnvironment
 
 @typechecked
 def find_invariant_greatest_fixed_point(base_ver_env: VerificationEnvironment, ind_ver_env: VerificationEnvironment, invariant: ObservationList, delayed_check_str: str, vcd_analyzer: VCDAnalyzer, target_observations: ObservationList|None):
-    counter = 1
     dropped_invariants = []
     timers = [datetime.now()]
     for (case_name, specific_env) in [("base", base_ver_env), ("inductive", ind_ver_env)]:
         while not invariant.is_empty():
-            ctr = vcd_analyzer.trace_number
+            ctr = vcd_analyzer.get_future_number()
             logfile("\nBegin the {}th loop...\n".format(ctr))
             logtimefile("\n\n\tTime for the {}th loop...".format(ctr))
-            counter += 1
             print(f"Checking the {case_name} case")
             logfile(f"\nChecking the {case_name} case...\n")
 
-            verifStatus, cex, inv = verify(specific_env, invariant, case_name, delayed_check_str, vcd_analyzer)
+            verifStatus, inv = verify(specific_env, invariant, case_name, delayed_check_str, vcd_analyzer)
 
             if verifStatus == "FAIL":
                 print(f"The {case_name} case is not satisfied!")

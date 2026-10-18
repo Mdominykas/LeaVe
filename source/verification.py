@@ -696,7 +696,7 @@ def precomputing(srcObservations: ObservationList, trgObservations: ObservationL
 
 
 @typechecked
-def verify(specific_env: VerificationEnvironment, trgObservations: ObservationList, case_name: str, filtertype: str, vcd_analyzer: VCDAnalyzer) -> tuple[str, str|None, PreparedObservationList]:
+def verify(specific_env: VerificationEnvironment, trgObservations: ObservationList, case_name: str, filtertype: str, vcd_analyzer: VCDAnalyzer) -> tuple[str, PreparedObservationList]:
     if CONF.do_inductive_invariant_verification:
         observation_prefix = "inductive_state_invariant"
         suffix = "provable_inv"
@@ -785,11 +785,11 @@ def verify(specific_env: VerificationEnvironment, trgObservations: ObservationLi
             log("Verification FAILED")
             vcd_analyzer.split_left_right()
             export_counter_example(tb_file)
-            return "FAIL", tb_file, obs_list
+            return "FAIL", obs_list
 
         elif "Status: PASSED" in output:
             log("Verification PASSED")
-            return "PASS", None, obs_list
+            return "PASS", obs_list
         else:
             print("Unknown verification result")
             exit(1)

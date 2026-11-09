@@ -74,7 +74,7 @@ def parse_parts(prefix, line):
 
 
 exported_cnt = 0
-def export_counter_example(tb_file):
+def export_counter_example(tb_file, vcd_analyzer):
     global exported_cnt
 
     counter_example_folder = CONF.outFolder + "/counterexamples/"
@@ -99,7 +99,7 @@ def export_counter_example(tb_file):
 
 
     for (suffix, arr) in [("_left", lefts), ("_right", rights)]:
-        file_name = counter_example_folder + str(exported_cnt) + suffix
+        file_name = counter_example_folder + str(vcd_analyzer.get_current_number()) + suffix
         with open(file_name, "w") as file:
             data = dict(arr)
             json.dump(data, file, indent=4)

@@ -73,7 +73,7 @@ class YosysSMTCommandManager:
 
 
     @typechecked
-    def verify(self, smt_output_file: str, log=True):
+    def verify(self, smt_output_file: str, log = True):
         cmd = [self.yosys_smtbmc_path, *self.options, smt_output_file]
 
         if log:
@@ -333,7 +333,7 @@ class YosysCommandManager:
     def flatten_with_extra_steps(self, folder: str, module: str):
         self.add_read_verilog_whole_folder(folder)
         self.set_top_of_hierarchy(module)
-        if CONF.usePredictor:
+        if CONF.wireLiftingPath:
             self.add_wire_lifting_pass(str(Path(CONF.wireLiftingPath).resolve()))
 
         self.add_proc_no_rom()
@@ -366,7 +366,7 @@ class YosysCommandManager:
     def show_regs_mems_workflow(self, out_folder: str, module: str) -> tuple[List[RTLMemory], List[RTLVariable]]:
         self.add_read_verilog_whole_folder(out_folder)
         self.set_top_of_hierarchy(module)
-        if CONF.usePredictor:
+        if CONF.wireLiftingPath:
             relative_path = Path(CONF.wireLiftingPath)
             self.add_wire_lifting_pass(str(relative_path.resolve()))
         self.add_proc_no_rom()

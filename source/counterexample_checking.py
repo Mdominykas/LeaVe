@@ -37,6 +37,10 @@ class VCDAnalyzer:
     @typechecked
     def get_future_number(self) -> int:
         return self.trace_number + 1
+    
+    @typechecked
+    def get_current_number(self) -> int:
+        return self.trace_number
 
     def split_left_right(self):
         src = VCDVCD(self.last_file_name())

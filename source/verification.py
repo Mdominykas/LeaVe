@@ -784,7 +784,7 @@ def verify(specific_env: VerificationEnvironment, trgObservations: ObservationLi
             tb_file = "{}/{}_tb.v".format(specific_env.target_str(), targetName)
             log("Verification FAILED")
             vcd_analyzer.split_left_right()
-            export_counter_example(tb_file)
+            export_counter_example(tb_file, vcd_analyzer)
             return "FAIL", obs_list
 
         elif "Status: PASSED" in output:

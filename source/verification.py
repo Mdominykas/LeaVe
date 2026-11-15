@@ -52,7 +52,7 @@ class VBuild:
     @staticmethod
     @typechecked
     def build_impl(wire_a: str, wire_b: str) -> str:
-        return f"(!({wire_a}) || ({wire_b}))"
+        return f"(! ( {wire_a} ) || ( {wire_b} ) )"
 
     @staticmethod
     @typechecked
@@ -203,9 +203,15 @@ def declare_inductive_state_invariant_wire(constr: VerilogConstructor, obs: Prep
     wire_name = "{}_{}".format(obs.id, cstrType)
     # TODO: I am discarding init, cause it's inductive invariant
     # TODO: Note: I am only checking the property on left
-    comb = ["{}_{}_left".format(arg.var, cstrType) for arg in obs.attrs]
-    cond = "{}_{}_left".format(obs.cond.var, cstrType)
-    constr.add(VBuild.declare_wire(wire_name, VBuild.build_impl(cond, VBuild.build_and(comb))))
+    left_comb = ["{}_{}_left".format(arg.var, cstrType) for arg in obs.attrs]
+    left_cond = "{}_{}_left".format(obs.cond.var, cstrType)
+    left_wire = VBuild.build_impl(left_cond, VBuild.build_and(left_comb))
+
+    right_comb = ["{}_{}_right".format(arg.var, cstrType) for arg in obs.attrs]
+    right_cond = "{}_{}_right".format(obs.cond.var, cstrType)
+    right_wire = VBuild.build_impl(right_cond, VBuild.build_and(right_comb))
+    
+    constr.add(VBuild.declare_wire(wire_name, VBuild.build_and([left_wire, right_wire])))
 
 @typechecked
 def self_composition_inductive_state_invariant(wire_id: str, inductive_inv_vars: PreparedObservationList, prefix: str, constr: VerilogConstructor):
@@ -246,7 +252,7 @@ def self_composition_equiv_constraint(constr: VerilogConstructor, observation: P
 
     constr.add(VBuild.declare_wire(wire_name, expr))
 
-def selfCompositionCycleDelayedCheck(src_obs_list: PreparedObservationList, trg_obs_list: PreparedObservationList, initial_state_constraints: InitialStateConstraintList, state_assumption_vars: PreparedObservationList, inductive_state_invariants_vars: PreparedObservationList, cstrType):
+def selfCompositionCycleDelayedCheck(src_obs_list: PreparedObservationList, trg_obs_list: PreparedObservationList, initial_state_constraints: InitialStateConstraintList, state_assumption_vars: PreparedObservationList, inductive_state_invariants_vars: PreparedObservationList, case_name):
     clock = CONF.clockInput
     trg = trg_obs_list.get_combined_name()
     delayed_trg = "delayed_trg_equiv"
@@ -264,16 +270,28 @@ def selfCompositionCycleDelayedCheck(src_obs_list: PreparedObservationList, trg_
     verificationConditions += f"\t\t end\n"
     verificationConditions += f"\t end\n"
 
+    if CONF.do_inductive_invariant_verification:
+        if case_name == "base":
+            verificationConditions += VBuild.assume_property("CYCLE_NUM <= 0") + "\n"
+        else:
+            verificationConditions += VBuild.assume_property("CYCLE_NUM <= 1") + "\n"
+    else:
+        # TODO: this might need to change when I will try with lookahead = 0
+        assert int(CONF.lookAhead) >= 1, "I think this part is wrong if lookahead is zero"
+        verificationConditions += VBuild.assume_property("CYCLE_NUM <= {}".format(CONF.lookAhead)) + "\n"
+
 
     verificationConditions += VBuild.assume_property(state_assumption_vars.get_combined_name()) + "\n"
     # TODO: I can add k-induction here
     if CONF.do_inductive_invariant_verification:
-        if cstrType == "inductive":
+        if case_name == "base":
+            verificationConditions += VBuild.assume_property(VBuild.on_cycle(0, initial_state_constraints.get_combined_name())) + "\n"
+            verificationConditions += VBuild.assert_property(VBuild.on_cycle(0, inductive_state_invariants_vars.get_combined_name())) + "\n"
+        elif case_name == "inductive":
             verificationConditions += VBuild.assume_property(VBuild.on_cycle(0, inductive_state_invariants_vars.get_combined_name())) + "\n"
             verificationConditions += VBuild.assert_property(VBuild.on_cycle(1, inductive_state_invariants_vars.get_combined_name())) + "\n"
         else:
-            verificationConditions += VBuild.assume_property(VBuild.on_cycle(0, initial_state_constraints.get_combined_name())) + "\n"
-            verificationConditions += VBuild.assert_property(VBuild.on_cycle(0, inductive_state_invariants_vars.get_combined_name())) + "\n"
+            assert False
     else:
         verificationConditions += f"\t reg {delayed_trg};\n"
         verificationConditions += "\t " + VBuild.declare_wire(delayed_trg_now, VBuild.on_cycle(1, trg)) + "\n"
@@ -285,14 +303,14 @@ def selfCompositionCycleDelayedCheck(src_obs_list: PreparedObservationList, trg_
 
         verificationConditions += VBuild.assume_property(src_obs_list.get_combined_name()) + "\n"
 
-        if cstrType == "base":
+        if case_name == "base":
             verificationConditions += VBuild.assume_property(VBuild.on_cycle(0, initial_state_constraints.get_combined_name())) + "\n"
 
             # This enforces that delayed_trg_equiv is 1 on init
             verificationConditions += VBuild.assume_property(VBuild.on_init("delayed_base_equiv")) + "\n"
             
             verificationConditions += VBuild.assert_property(VBuild.on_cycle(int(CONF.lookAhead), "delayed_base_equiv")) + "\n"
-        elif cstrType == "inductive":
+        elif case_name == "inductive":
             verificationConditions += VBuild.assume_property(VBuild.on_init(trg)) + "\n"
 
             # This enforces that delayed_trg_equiv is 1 on init
@@ -696,7 +714,7 @@ def precomputing(srcObservations: ObservationList, trgObservations: ObservationL
 
 
 @typechecked
-def verify(specific_env: VerificationEnvironment, trgObservations: ObservationList, case_name: str, filtertype: str, vcd_analyzer: VCDAnalyzer) -> tuple[str, PreparedObservationList]:
+def verify(specific_env: VerificationEnvironment, trgObservations: ObservationList, case_name: str, filtertype: str, vcd_analyzer: VCDAnalyzer, first_run: bool) -> tuple[str, PreparedObservationList]:
     if CONF.do_inductive_invariant_verification:
         observation_prefix = "inductive_state_invariant"
         suffix = "provable_inv"
@@ -774,13 +792,24 @@ def verify(specific_env: VerificationEnvironment, trgObservations: ObservationLi
         cmd += ["--dump-smtc", "{}/{}_smtc".format(specific_env.target_str(), targetName)]
         cmd += ["--dump-vcd", str(vcd_analyzer.give_file_name())]
         cmd += ["--noinit"]
-        cmd += ["--noincr"]
+        if first_run:
+            cmd += ["--presat"]
+        else:
+            cmd += ["--noincr"]
+
         cmd += ["{}/{}.smt".format(specific_env.target_str(), targetName)]
         output = run_process(cmd, CONF.verbose_verification)
         time5 = datetime.now()
         logtimefile("\n\t\tTime for BMC: "+ str((time5 - time4).seconds))
 
-        if "Status: FAILED" in output:
+        if "Status: PREUNSAT" in output:
+            msg = (f"The assumptions of the {case_name} case are unsatisfiable (yosys-smtbmc reported PREUNSAT).\n")
+            log("Verification aborted: assumptions are unsatisfiable")
+            logfile("\n\t" + msg)
+            print(msg)
+            exit(1)
+
+        elif "Status: FAILED" in output:
             tb_file = "{}/{}_tb.v".format(specific_env.target_str(), targetName)
             log("Verification FAILED")
             vcd_analyzer.split_left_right()

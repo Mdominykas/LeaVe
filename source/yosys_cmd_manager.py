@@ -155,26 +155,17 @@ class YosysCommandManager:
     def add_string_pass(self, yosys_pass: str):
         self.cmds.append(StringYosysCommand(yosys_pass))
 
-    def add_hierarchy(self):
-        self.cmds.append(StringYosysCommand("hierarchy"))
-
     @typechecked
     def add_hierarchy_with_top(self, top_module: str):
-        self.cmds.append(StringYosysCommand("hierarchy -top {}".format(top_module)))
-
-
-    def add_hierarchy_auto_top(self):
-        self.cmds.append(StringYosysCommand("hierarchy -auto-top"))
-
+        self.cmds.append(StringYosysCommand("tee -q hierarchy -top {}".format(top_module)))
 
     def add_read_verilog_whole_folder(self, verilog_folder: str, add_sv: bool = True):
         sv_flag = "-sv" if add_sv else ""
-        self.cmds.append(StringYosysCommand("read_verilog {} {}/*.v".format(sv_flag, verilog_folder)))
+        self.cmds.append(StringYosysCommand("tee -q read_verilog {} {}/*.v".format(sv_flag, verilog_folder)))
 
     def add_read_verilog_single_file(self, file_name: str, add_sv: bool = True):
         sv_flag = "-sv" if add_sv else ""
-        self.cmds.append(StringYosysCommand("read_verilog {} {}".format(sv_flag, file_name)))
-
+        self.cmds.append(StringYosysCommand("tee -q read_verilog {} {}".format(sv_flag, file_name)))
 
     def add_flattening(self):
         self.cmds.append(StringYosysCommand("flatten"))

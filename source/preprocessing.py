@@ -132,8 +132,6 @@ def preprocessing(common_env: VerificationEnvironment, base_ver_env: Verificatio
     assert CONF.moduleFile == CONF.module + ".v", "I think this holds, but idk what is written in configs"
     base_ver_env.copy_file(common_env.target_path() / CONF.moduleFile, CONF.moduleFile)
     ind_ver_env.copy_file(common_env.target_path() / CONF.moduleFile, CONF.moduleFile)
-    # base_ver_env.copy_file(base_ver_env.target_path() / "prod_renamed.temp", "prod.temp")
-    # ind_ver_env.copy_file(ind_ver_env.target_path() / "prod_renamed.temp", "prod.temp")
     time2 = datetime.now()
     logtimefile("\n\t\tTime for renaming the flattened product circuit: "+ str((time2- time1).seconds))
 

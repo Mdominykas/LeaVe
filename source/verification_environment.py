@@ -23,10 +23,8 @@ class VerificationEnvironment:
     @typechecked
     def copy_actual_code(self, avoid_template: bool = False):
         found_template = False
-        print("source is: ", self.source)
         for item in self.source.iterdir():
             if item.is_file():
-                print("There was a file named: ", str(item.name))
                 if str(item.name) == CONF.prodCircuitTemplate:
                     found_template = True
                     continue

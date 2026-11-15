@@ -57,10 +57,11 @@ def initInvariant(common_env: VerificationEnvironment, filtertype) -> tuple[AuxV
 
 @typechecked
 def refineInvariant(invariant: ObservationList, diffInvList: list[str]) -> ObservationList:
-    ans = ObservationList(combined_name=invariant.combined_name)
+    ans = ObservationList(combined_name = invariant.combined_name)
     for obs in invariant.observations:
-        if (obs.id not in diffInvList) and (rename(obs.id) not in diffInvList):
+        if (obs.id not in diffInvList):
             ans.add_observation(obs)
+        assert rename(obs.id) not in diffInvList, "I think this condition is always true, but I would like to test it first"
     return ans
 
 @typechecked

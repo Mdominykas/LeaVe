@@ -129,7 +129,7 @@ def equiv_prediction(constr: VerilogConstructor, obs_pred: ObservationPrediction
 
     appl_r = "{}_{}_right".format(obs_pred.applicability, postfix)
 
-    same_obs = "({} && ((! {}) || ({})))".format(appl_eq, appl_r, attr_eq)
+    same_obs = "({} && ((! {} ) || ({} )))".format(appl_eq, appl_r, attr_eq)
 
     lft_avail = "{}_{}_left".format(obs_pred.avail, postfix)
     rgt_avail = "{}_{}_right".format(obs_pred.avail, postfix)
@@ -202,7 +202,6 @@ def selfCompositionStateInvariant(wire_id: str, inv_vars: PreparedObservationLis
 def declare_inductive_state_invariant_wire(constr: VerilogConstructor, obs: PreparedObservation, cstrType: str):
     wire_name = "{}_{}".format(obs.id, cstrType)
     # TODO: I am discarding init, cause it's inductive invariant
-    # TODO: Note: I am only checking the property on left
     left_comb = ["{}_{}_left".format(arg.var, cstrType) for arg in obs.attrs]
     left_cond = "{}_{}_left".format(obs.cond.var, cstrType)
     left_wire = VBuild.build_impl(left_cond, VBuild.build_and(left_comb))
@@ -221,7 +220,7 @@ def self_composition_inductive_state_invariant(wire_id: str, inductive_inv_vars:
     constr.add(VBuild.declare_wire(wire_id, VBuild.build_and(wires)))
 
 @typechecked
-def satisfaction_of_initial_state_constraints(wire_id: str, constraints: InitialStateConstraintList, prefix: str):
+def satisfaction_of_initial_state_constraints(wire_id: str, constraints: InitialStateConstraintList, prefix: str) -> str:
     constr_str_list = []
     for c in constraints.get_constraints():
         right = "{}_{}_right".format(c.var, prefix)
@@ -272,7 +271,7 @@ def selfCompositionCycleDelayedCheck(src_obs_list: PreparedObservationList, trg_
 
     if CONF.do_inductive_invariant_verification:
         if case_name == "base":
-            verificationConditions += VBuild.assume_property("CYCLE_NUM <= 0") + "\n"
+            verificationConditions += VBuild.assume_property("CYCLE_NUM == 0") + "\n"
         else:
             verificationConditions += VBuild.assume_property("CYCLE_NUM <= 1") + "\n"
     else:
@@ -794,6 +793,8 @@ def verify(specific_env: VerificationEnvironment, trgObservations: ObservationLi
         cmd += ["--noinit"]
         if first_run:
             cmd += ["--presat"]
+            cmd += ["--track-assumes"]
+            cmd += ["--minimize-assumes"]
         else:
             cmd += ["--noincr"]
 

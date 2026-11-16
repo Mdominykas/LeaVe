@@ -811,6 +811,7 @@ def verify(specific_env: VerificationEnvironment, trgObservations: ObservationLi
             cmd += ["--minimize-assumes"]
         else:
             cmd += ["--noincr"]
+        cmd += ["--noprogress"]
 
         cmd += ["{}/{}.smt".format(specific_env.target_str(), targetName)]
         output = run_process(cmd, CONF.verbose_verification)

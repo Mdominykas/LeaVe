@@ -316,7 +316,8 @@ def selfCompositionCycleDelayedCheck(src_obs_list: PreparedObservationList, trg_
         verificationConditions += VBuild.assume_property(src_obs_list.get_combined_name()) + "\n"
 
         if case_name == "base":
-            verificationConditions += VBuild.assume_property(VBuild.on_cycle(0, initial_state_constraints.get_combined_name())) + "\n"
+            if not CONF.minimize_failing_assumptions:
+                verificationConditions += VBuild.assume_property(VBuild.on_cycle(0, initial_state_constraints.get_combined_name())) + "\n"
 
             # This enforces that delayed_trg_equiv is 1 on init
             verificationConditions += VBuild.assume_property(VBuild.on_init("delayed_base_equiv")) + "\n"

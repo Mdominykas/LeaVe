@@ -78,6 +78,8 @@ class ConfCls:
 
     do_inductive_invariant_verification = None
 
+    minimize_failing_assumptions = True
+
     def set(self, name, value):
         options = {
             'selfCompositionEquality': ['==', '==='],

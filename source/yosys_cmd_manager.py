@@ -284,7 +284,7 @@ class YosysCommandManager:
 
     @typechecked
     def set_top_of_hierarchy(self, module_name: str):
-        self.cmds.append(StringYosysCommand("hierarchy -top {}".format(module_name)))
+        self.cmds.append(StringYosysCommand("tee -q hierarchy -top {}".format(module_name)))
 
     @typechecked
     def add_select_pass(self, module: str):

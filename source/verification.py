@@ -194,6 +194,8 @@ def selfCompositionStateInvariant(wire_id: str, inv_vars: PreparedObservationLis
        
         wires.append(wire_name)
         constr.add(VBuild.declare_wire(wire_name, res))
+        if CONF.minimize_failing_assumptions:
+            constr.add(VBuild.assume_property(wire_name))
 
     constr.add(VBuild.declare_wire(wire_id, VBuild.build_and(wires)))
 
@@ -222,6 +224,7 @@ def self_composition_inductive_state_invariant(wire_id: str, inductive_inv_vars:
 @typechecked
 def satisfaction_of_initial_state_constraints(wire_id: str, constraints: InitialStateConstraintList, prefix: str) -> str:
     constr_str_list = []
+    wire_assumptions = []
     for c in constraints.get_constraints():
         right = "{}_{}_right".format(c.var, prefix)
         left = "{}_{}_left".format(c.var, prefix)
@@ -231,8 +234,16 @@ def satisfaction_of_initial_state_constraints(wire_id: str, constraints: Initial
         if c.val is not None:
             left_eq_val = "{} {} {}".format(left, CONF.selfCompositionEquality, c.val)
             constr_str_list.append(left_eq_val)
-    
-    return VBuild.declare_wire(wire_id, VBuild.build_and(constr_str_list))
+
+        per_constraint = [left_eq_right] + ([left_eq_val] if c.val is not None else [])
+        wire_assumptions.append(
+            VBuild.assume_property(VBuild.on_cycle(0, VBuild.build_and(per_constraint))))
+
+    large_conjunction = VBuild.declare_wire(wire_id, VBuild.build_and(constr_str_list))
+
+    if CONF.minimize_failing_assumptions:
+        return '\n'.join(wire_assumptions) + '\n' + large_conjunction
+    return large_conjunction
 
 @typechecked
 def self_composition_equiv_constraint(constr: VerilogConstructor, observation: PreparedObservation, cstrType: str):
@@ -280,11 +291,13 @@ def selfCompositionCycleDelayedCheck(src_obs_list: PreparedObservationList, trg_
         verificationConditions += VBuild.assume_property("CYCLE_NUM <= {}".format(CONF.lookAhead)) + "\n"
 
 
-    verificationConditions += VBuild.assume_property(state_assumption_vars.get_combined_name()) + "\n"
+    if not CONF.minimize_failing_assumptions:
+        verificationConditions += VBuild.assume_property(state_assumption_vars.get_combined_name()) + "\n"
     # TODO: I can add k-induction here
     if CONF.do_inductive_invariant_verification:
         if case_name == "base":
-            verificationConditions += VBuild.assume_property(VBuild.on_cycle(0, initial_state_constraints.get_combined_name())) + "\n"
+            if not CONF.minimize_failing_assumptions:
+                verificationConditions += VBuild.assume_property(VBuild.on_cycle(0, initial_state_constraints.get_combined_name())) + "\n"
             verificationConditions += VBuild.assert_property(VBuild.on_cycle(0, inductive_state_invariants_vars.get_combined_name())) + "\n"
         elif case_name == "inductive":
             verificationConditions += VBuild.assume_property(VBuild.on_cycle(0, inductive_state_invariants_vars.get_combined_name())) + "\n"

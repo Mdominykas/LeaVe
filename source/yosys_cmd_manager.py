@@ -128,9 +128,7 @@ class YosysCommandManager:
 
     @typechecked
     def run_from_script(self, script_path: str, verbose: bool=True):
-        print("script turi buti:", script_path)
         self.write_script(script_path)
-        print("nes sukuriau script:", script_path)
         cmd = [CONF.yosysPath]
         cmd.append("-s{}".format(script_path))
         if verbose and CONF.verbose_verification and CONF.verbose_external_processes:

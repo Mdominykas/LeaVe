@@ -237,7 +237,7 @@ def satisfaction_of_initial_state_constraints(wire_id: str, constraints: Initial
 
         per_constraint = [left_eq_right] + ([left_eq_val] if c.val is not None else [])
         wire_assumptions.append(
-            VBuild.assume_property(VBuild.on_cycle(0, VBuild.build_and(per_constraint))))
+            VBuild.assume_property(VBuild.on_startup(VBuild.build_and(per_constraint))))
 
     large_conjunction = VBuild.declare_wire(wire_id, VBuild.build_and(constr_str_list))
 

@@ -133,8 +133,6 @@ class YosysCommandManager:
         cmd.append("-s{}".format(script_path))
         if verbose and CONF.verbose_verification and CONF.verbose_external_processes:
             print("Execute {}".format(" ".join(cmd) ))
-        for m in CONF.yosysAdditionalModules:
-            cmd.append(f"-m{m}")
 
         o_ = run(cmd, stdout=PIPE, stderr=STDOUT)
 
